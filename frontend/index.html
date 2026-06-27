@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>新数字时代的基础设施</title>
+  <link rel="stylesheet" href="/frontend/styles.css">
+</head>
+<body>
+  <main class="page-shell">
+    <nav class="top-navbar animate-in nav-layer" aria-label="主导航">
+      <a class="logo-link" href="#" aria-label="首页">
+        <svg class="logo" viewBox="0 0 256 256" fill="#192837" aria-hidden="true">
+          <path d="M 64 128 L 64.5 128 L 32 95 L 0 64 L 0 0 L 64 0 L 128 64 L 128 64.5 L 161 32 L 192 0 L 256 0 L 256 64 L 192 128 L 128 128 L 128 192 L 96 223 L 63.5 256 L 0 256 L 0 192 Z M 256 192 L 224 223 L 191.5 256 L 128 256 L 128 192 L 192 128 L 256 128 Z"></path>
+        </svg>
+      </a>
+
+      <div class="desktop-links" aria-label="桌面导航">
+        <a href="#">资产库</a>
+        <a href="#">方案</a>
+        <a href="#">安装</a>
+        <a href="#">动态</a>
+        <a href="#">帮助</a>
+      </div>
+
+      <div class="desktop-actions">
+        <button class="btn btn-login" type="button" data-open-auth="login">登录</button>
+        <button class="btn btn-primary" type="button" data-open-auth="register">注册</button>
+        <button class="btn btn-enterprise" type="button" data-open-auth="enterprise">企业入驻</button>
+      </div>
+    </nav>
+
+    <section class="hero-container">
+      <div class="video-layer" aria-hidden="true">
+        <video class="hero-video" autoplay loop muted playsinline>
+          <source src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260505_101331_74f9b798-3f00-4e86-8a01-377aa16ffeaa.mp4" type="video/mp4">
+        </video>
+      </div>
+
+      <div class="content-wrapper animate-in text-layer">
+        <h1>构建新数字时代的<br>基础设施</h1>
+        <p>为企业、开发者与社区设计产品、驱动生态，并铺设去中心化网络的长期基础。</p>
+      </div>
+    </section>
+
+    <section class="marquee-shell" aria-label="合作品牌">
+      <div class="marquee-track" id="marqueeTrack"></div>
+    </section>
+  </main>
+
+  <div class="auth-overlay" id="authOverlay" aria-hidden="true">
+    <div class="auth-backdrop" data-close-auth></div>
+
+    <section class="auth-modal auth-register" data-auth-panel="register" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
+      <button class="auth-close" type="button" data-close-auth aria-label="关闭">×</button>
+      <div class="auth-message" role="status" aria-live="polite"></div>
+     <h2 id="registerTitle">注册</h2>
+     <form class="auth-form" data-auth-form="register">
+       <label class="required-field">
+          <input type="text" name="account" placeholder="手机号 / 邮箱" required>
+       </label>
+       <label class="required-field">
+         <input type="password" name="password" placeholder="密码" required>
+       </label>
+       <label class="required-field">
+         <input type="password" name="confirmPassword" placeholder="确认密码" required>
+       </label>
+        <label>
+          <input type="text" name="inviteCode" placeholder="企业邀请码（选填）">
+        </label>
+       <label class="agreement-row">
+         <input type="checkbox" name="agreement" required>
+         <span>我已阅读并同意 <a href="#">用户服务协议</a>、<a href="#">隐私政策</a></span>
+       </label>
+       <button class="submit-button" type="submit">立即注册</button>
+     </form>
+      <p class="switch-line">已有账号？<button type="button" data-switch-auth="login">立即登录</button></p>
+    </section>
+
+    <section class="auth-modal auth-login" data-auth-panel="login" role="dialog" aria-modal="true" aria-labelledby="loginTitle">
+      <button class="auth-close" type="button" data-close-auth aria-label="关闭">×</button>
+      <div class="auth-message" role="status" aria-live="polite"></div>
+      <h2 id="loginTitle">登录</h2>
+      <form class="auth-form" data-auth-form="login">
+        <label>
+          <input type="text" name="account" placeholder="用户：admin">
+        </label>
+        <label>
+          <input type="password" name="password" placeholder="密码：123456">
+        </label>
+        <label class="captcha-field">
+          <input type="text" name="captcha" placeholder="请输入验证码">
+          <span class="captcha-code">4305</span>
+        </label>
+        <button class="submit-button" type="submit">立即登录</button>
+      </form>
+      <p class="switch-line">还没有账号？<button type="button" data-switch-auth="register">去注册</button></p>
+    </section>
+
+    <section class="auth-modal auth-enterprise" data-auth-panel="enterprise" role="dialog" aria-modal="true" aria-labelledby="enterpriseTitle">
+      <button class="auth-close" type="button" data-close-auth aria-label="关闭">×</button>
+      <div class="auth-message" role="status" aria-live="polite"></div>
+      <h2 id="enterpriseTitle">企业入驻</h2>
+      <form class="auth-form" data-auth-form="enterprise">
+        <label class="required-field">
+          <input type="text" name="enterprise_name" placeholder="企业名称" required minlength="2">
+        </label>
+        <label>
+          <input type="text" name="contact_name" placeholder="联系人姓名">
+        </label>
+        <label>
+          <input type="text" name="contact_phone" placeholder="联系电话">
+        </label>
+        <label class="required-field">
+          <input type="text" name="account" placeholder="管理员账号（手机号 / 邮箱）" required>
+        </label>
+        <label class="required-field">
+          <input type="password" name="password" placeholder="密码" required minlength="6">
+        </label>
+        <label class="required-field">
+          <input type="password" name="confirmPassword" placeholder="确认密码" required>
+        </label>
+        <button class="submit-button" type="submit">开通企业并登录</button>
+      </form>
+      <p class="switch-line">已有账号？<button type="button" data-switch-auth="login">立即登录</button></p>
+    </section>
+  </div>
+
+  <script src="/frontend/script.js"></script>
+</body>
+</html>

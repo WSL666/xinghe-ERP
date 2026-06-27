@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商品管线工作台</title>
+  <link rel="stylesheet" href="/dashboard/assets/css/styles.css?v=20260626-mid">
+</head>
+<body>
+  <main id="loginView" class="login-shell">
+    <section class="login-panel">
+      <div class="login-copy">
+       <p class="eyebrow">Product Pipeline ERP</p>
+        <h1>采集商品、生成 AI 图片、导出 listing，一站完成。</h1>
+        <p class="login-desc">专注的商品采集、图像生成、listing 审核与 Excel 交付工作台。</p>
+       <div class="login-metrics">
+          <span><b>插件</b>商品采集</span>
+          <span><b>视觉</b>图像筛选</span>
+          <span><b>XLSX</b>导出</span>
+       </div>
+      </div>
+
+      <form id="loginForm" class="login-card">
+        <div class="mark">PP</div>
+        <h2>登录</h2>
+        <p>使用管线账号登录。开发期间可直接注册新账号。</p>
+
+       <label>
+          账号
+         <input id="loginUser" name="username" type="text" value="admin" autocomplete="username">
+       </label>
+       <label>
+          密码
+         <input id="loginPassword" name="password" type="password" value="123456" autocomplete="current-password">
+       </label>
+       <label>
+          API 服务地址
+         <input id="loginApiBase" name="apiBase" type="url">
+       </label>
+
+        <button class="primary-btn" type="submit">进入工作台</button>
+        <p class="hint">默认开发账号：admin / 123456。</p>
+        <p class="hint"><a href="/onboard" style="color:#7342E2;text-decoration:none">企业入驻 →</a></p>
+      </form>
+    </section>
+  </main>
+
+  <main id="appView" class="app-shell is-hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-logo">PP</span>
+        <div>
+         <strong>Product ERP</strong>
+          <small>AI Listing 管线</small>
+       </div>
+     </div>
+
+      <nav class="side-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="dashboard">工作台</button>
+
+        <div class="nav-group" id="collectNavGroup">
+          <button class="nav-item nav-group-toggle" data-action="toggle-nav" type="button">
+            <span>商品采集箱</span>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="products" type="button">TEMU采集箱</button>
+            <button class="nav-item nav-sub-item" data-view="box1688" type="button">1688采集箱</button>
+            <button class="nav-item nav-sub-item" data-view="boxOzon" type="button">OZON采集箱</button>
+          </div>
+        </div>
+
+        <div class="nav-group" id="studioNavGroup">
+          <button class="nav-item nav-group-toggle" data-action="toggle-nav" type="button">
+            <span>AI创作中心</span>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="agent" type="button">智能体</button>
+            <button class="nav-item nav-sub-item" data-view="aiImage" type="button">AI生图</button>
+            <button class="nav-item nav-sub-item" data-view="imageEdit" type="button">图片编辑</button>
+          </div>
+        </div>
+
+        <a class="nav-item is-hidden" id="enterpriseNav" href="/enterprise">企业管理</a>
+        <button class="nav-item" data-view="settings">设置</button>
+     </nav>
+
+     <div class="side-card">
+        <span>当前服务</span>
+       <strong id="sideApiBase">-</strong>
+        <button class="ghost-btn small" data-action="test-api">测试连接</button>
+     </div>
+    </aside>
+
+    <section class="workspace">
+      <header class="topbar">
+        <div>
+          <p id="pageEyebrow" class="eyebrow">工作台</p>
+          <h1 id="pageTitle">商品 AI 管线</h1>
+       </div>
+       <div class="top-actions">
+          <span id="apiStatus" class="status-pill muted">未检测</span>
+          <button class="ghost-btn" data-action="refresh">刷新</button>
+          <button class="ghost-btn" data-action="logout">退出</button>
+       </div>
+      </header>
+
+      <section id="dashboardPanel" class="view-panel active">
+        <div class="hero-strip">
+          <div>
+            <p class="eyebrow">今日</p>
+            <h2>从浏览器采集到 AI 出图与 Excel 导出。</h2>
+            <p>查看已导入商品、原图、生成图、任务状态及可导出 listing。</p>
+         </div>
+          <button class="primary-btn" data-action="refresh">同步商品</button>
+       </div>
+
+       <div class="metric-grid">
+         <article class="metric-card">
+            <span>已导入商品</span>
+           <strong id="statTotal">0</strong>
+            <small>插件或 XLSX 导入记录</small>
+         </article>
+         <article class="metric-card">
+            <span>已完成</span>
+           <strong id="statDone">0</strong>
+            <small>可导出商品</small>
+         </article>
+         <article class="metric-card">
+            <span>已生成图片</span>
+           <strong id="statImages">0</strong>
+            <small>AI 成功输出图片</small>
+         </article>
+         <article class="metric-card">
+            <span>进行中</span>
+           <strong id="statRunning">0</strong>
+            <small>排队、翻译或生成中</small>
+         </article>
+       </div>
+
+        <div class="content-grid">
+          <section class="card wide">
+            <div class="card-head">
+              <div>
+                <p class="eyebrow">最近导入</p>
+                <h3>最新商品</h3>
+             </div>
+              <button class="ghost-btn small" data-view="products">查看全部</button>
+           </div>
+           <div id="recentList" class="recent-list"></div>
+         </section>
+
+         <section class="card">
+           <div class="card-head">
+             <div>
+                <p class="eyebrow">管线</p>
+                <h3>工作流</h3>
+             </div>
+           </div>
+           <ol class="pipeline-list">
+              <li><b>1</b><span>浏览器插件发送商品 JSON。</span></li>
+              <li><b>2</b><span>后端保存导入并加入任务队列。</span></li>
+              <li><b>3</b><span>执行标题翻译、视觉分析与图像生成。</span></li>
+              <li><b>4</b><span>下载最终 Excel 文件到本地电脑。</span></li>
+           </ol>
+         </section>
+        </div>
+      </section>
+
+      <section id="productsPanel" class="view-panel">
+        <div class="toolbar-card">
+          <div class="search-box">
+           <input id="searchInput" type="search" placeholder="Search title, ID, goods ID, or English title">
+            <input id="searchInput" type="search" placeholder="搜索标题、ID、goods ID 或英文标题">
+         </div>
+         <select id="statusFilter">
+            <option value="all">全部状态</option>
+            <option value="done">已完成</option>
+            <option value="generating">生成中</option>
+            <option value="pending">待处理</option>
+            <option value="error">错误</option>
+         </select>
+          <button class="ghost-btn" data-action="refresh">刷新</button>
+          <button class="primary-btn" data-action="open-upload">上传 XLSX</button>
+         <input id="xlsxInput" type="file" accept=".xlsx" hidden>
+        </div>
+
+        <section class="card">
+          <div class="card-head">
+            <div>
+                <p class="eyebrow" id="productPanelEyebrow">已采集商品</p>
+                <h3 id="productPanelTitle">商品记录</h3>
+             </div>
+           </div>
+          <div class="table-wrap">
+           <table class="data-table">
+             <!-- 列宽唯一来源：9 列固定宽度，与下方 <th> 顺序一一对应，勿增删列。
+                  ⚠️ 改这里的宽度后，必须同步更新 styles.css 里 table.data-table 的 min-width（≥9列之和）。
+                  列顺序：复选框|商品标题|状态|图片|产品规格|视频|尺寸|时间|操作 -->
+            <colgroup>
+               <col style="width:40px">
+               <col style="width:210px">
+               <col style="width:60px">
+               <col style="width:520px">
+               <col style="width:52px">
+              <col style="width:68px">
+              <col style="width:88px">
+              <col style="width:88px">
+               <col style="width:72px">
+             </colgroup>
+             <thead>
+               <tr>
+                    <th class="cell-check"><input type="checkbox" id="selectAll" title="全选"></th>
+                   <th>商品标题</th>
+                   <th>状态</th>
+                    <th>图片</th>
+                    <th>产品规格</th>
+                    <th>视频</th>
+                    <th>尺寸</th>
+                    <th>时间</th>
+                    <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="productRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="box1688Panel" class="view-panel">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">商品采集箱</p>
+              <h3>1688 商品采集</h3>
+            </div>
+          </div>
+          <div class="empty-state">
+            <p>1688 采集链路开发中。</p>
+            <p class="hint">该平台暂未接入采集插件，采集到的商品将在此展示。</p>
+          </div>
+        </section>
+      </section>
+
+      <section id="boxOzonPanel" class="view-panel">
+        <section class="card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">商品采集箱</p>
+              <h3>OZON 商品采集</h3>
+            </div>
+          </div>
+          <div class="empty-state">
+            <p>OZON 采集链路开发中。</p>
+            <p class="hint">该平台暂未接入采集插件，采集到的商品将在此展示。</p>
+          </div>
+        </section>
+      </section>
+
+      <section id="settingsPanel" class="view-panel">
+        <section class="card settings-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">设置</p>
+              <h3>系统设置</h3>
+           </div>
+         </div>
+         <form id="settingsForm" class="settings-form">
+           <label>
+              API 服务地址
+             <input id="settingsApiBase" type="url">
+           </label>
+           <label>
+              插件 API 密钥
+              <input id="pluginApiKey" type="text" readonly placeholder="登录或重置 API 密钥">
+           </label>
+            <button class="ghost-btn" type="button" data-action="reset-api-key">重置 API 密钥</button>
+           <label>
+              默认账号
+             <input type="text" value="admin" disabled>
+           </label>
+           <label>
+              默认密码
+             <input type="text" value="123456" disabled>
+           </label>
+            <button class="primary-btn" type="submit">保存设置</button>
+         </form>
+
+          <div class="plugin-merged">
+            <div class="card-head standalone">
+              <div>
+                <p class="eyebrow">浏览器扩展</p>
+                <h3>插件连接</h3>
+              </div>
+            </div>
+            <p class="hint">在浏览器插件设置中使用以下服务地址和 API 密钥。</p>
+            <label>
+              插件服务地址
+              <div class="copy-row">
+                <input id="pluginUrl" readonly>
+                <button class="ghost-btn" data-action="copy-plugin-url">复制</button>
+              </div>
+            </label>
+            <label>
+              Manifest 权限示例
+              <textarea id="manifestExample" readonly rows="5"></textarea>
+            </label>
+            <ul class="check-list">
+              <li>开发期间 FastAPI 监听 0.0.0.0:6688。</li>
+              <li>其他电脑应使用局域网 IP 而非 localhost。</li>
+              <li>在 Windows 防火墙放行 Python 进程或 6688 端口。</li>
+              <li>修改服务地址后重新加载 Chrome 插件。</li>
+            </ul>
+          </div>
+
+          <p class="hint">当前开发版采用个人账号隔离，团队权限可后续扩展。</p>
+        </section>
+      </section>
+
+      <section id="agentPanel" class="view-panel">
+        <div class="agent-shell">
+          <aside class="agent-side">
+            <button class="primary-btn" data-action="new-chat" type="button">+ 新建对话</button>
+            <div class="conv-list">
+              <button class="conv-item active" type="button">
+                <span class="conv-dot"></span>
+                <span class="conv-title">新对话</span>
+              </button>
+            </div>
+            <div class="agent-side-foot">
+              <span class="eyebrow">提示</span>
+              <p class="hint">支持上传商品图、Excel、竞品链接。智能体将按需调用生图、文案与分析能力。</p>
+            </div>
+          </aside>
+          <section class="agent-chat">
+            <div id="agentMessages" class="chat-messages"></div>
+            <div class="agent-suggest">
+              <button class="chip" data-action="agent-prompt" data-prompt="帮我生成一套商品图：主图、场景图、细节图、尺寸图" type="button">生成商品套图</button>
+              <button class="chip" data-action="agent-prompt" data-prompt="优化这个商品的中英文标题，并写出五点描述" type="button">标题与五点描述</button>
+              <button class="chip" data-action="agent-prompt" data-prompt="把这张商品图抠图并换成纯白背景" type="button">抠图换白底</button>
+              <button class="chip" data-action="agent-prompt" data-prompt="分析这张商品图的卖点，给出上架建议" type="button">卖点分析</button>
+            </div>
+            <div class="composer">
+              <div id="composerAttachments" class="composer-attachments"></div>
+              <div class="composer-row">
+                <button class="composer-icon" data-action="attach-image" type="button" title="上传图片" aria-label="上传图片">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="M21 15l-5-5L5 21"/></svg>
+                </button>
+                <button class="composer-icon" data-action="attach-file" type="button" title="上传文件" aria-label="上传文件">
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5V7l-4-4H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h8"/><path d="M16 3v4h4"/><path d="M19 15v6"/><path d="M22 18h-6"/></svg>
+                </button>
+                <textarea id="composerInput" rows="1" placeholder="描述你想生成的商品图、文案或分析任务，回车发送…"></textarea>
+                <button class="primary-btn composer-send" data-action="agent-send" type="button">发送</button>
+              </div>
+              <input id="composerImageInput" type="file" accept="image/*" multiple hidden>
+              <input id="composerFileInput" type="file" multiple hidden>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="aiImagePanel" class="view-panel">
+        <div class="studio-grid">
+          <section class="card studio-form">
+            <div class="card-head"><div><p class="eyebrow">AI生图</p><h3>商品图生成</h3></div></div>
+
+            <span class="field-label">参考图</span>
+            <div id="studioDrop" class="dropzone" data-action="studio-add-ref">
+              <input id="studioRefInput" type="file" accept="image/*" multiple hidden>
+              <div class="dropzone-inner">
+                <p>拖入图片或点击选择</p>
+                <small>支持多张 · JPG/PNG/WebP</small>
+              </div>
+            </div>
+            <div id="studioRefGrid" class="ref-grid"></div>
+
+            <label class="field-label" for="studioPrompt">生图描述</label>
+            <textarea id="studioPrompt" rows="3" placeholder="描述你想要的商品图风格、场景、构图，或留空由智能体自动出图"></textarea>
+
+            <div class="studio-row">
+              <label>模型<select id="studioModel"><option>gpt-image-2</option><option>自动选择</option></select></label>
+              <label>尺寸<select><option>1024 × 1024</option><option>1280 × 1280</option><option>1024 × 1280</option></select></label>
+              <label>数量<select><option>6</option><option>8</option><option>10</option></select></label>
+            </div>
+
+            <span class="field-label">风格预设</span>
+            <div class="preset-chips">
+              <button class="chip selected" data-action="studio-preset" data-preset="white" type="button">纯白主图</button>
+              <button class="chip" data-action="studio-preset" data-preset="scene" type="button">场景图</button>
+              <button class="chip" data-action="studio-preset" data-preset="detail" type="button">细节图</button>
+              <button class="chip" data-action="studio-preset" data-preset="size" type="button">尺寸图</button>
+              <button class="chip" data-action="studio-preset" data-preset="lifestyle" type="button">生活方式</button>
+            </div>
+
+            <button class="primary-btn studio-generate" data-action="studio-generate" type="button">开始生成</button>
+          </section>
+
+          <section class="card studio-result">
+            <div class="card-head"><div><p class="eyebrow">结果</p><h3>生成结果</h3></div><button class="ghost-btn small" disabled type="button">全部下载</button></div>
+            <div id="studioGallery" class="gallery-grid">
+              <div class="empty-state">生成结果将在此展示。</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="imageEditPanel" class="view-panel">
+        <div class="edit-shell">
+          <nav class="edit-tools" aria-label="图片编辑工具">
+            <button class="edit-tool active" data-action="edit-tool" data-edit-tool="background" type="button">换背景</button>
+            <button class="edit-tool" data-action="edit-tool" data-edit-tool="cutout" type="button">智能抠图</button>
+            <button class="edit-tool" data-action="edit-tool" data-edit-tool="erase" type="button">局部消除</button>
+            <button class="edit-tool" data-action="edit-tool" data-edit-tool="expand" type="button">扩图</button>
+            <button class="edit-tool" data-action="edit-tool" data-edit-tool="upscale" type="button">画质放大</button>
+          </nav>
+
+          <div class="edit-stage">
+            <div id="editCanvas" class="edit-canvas" data-action="edit-upload">
+              <div class="edit-empty">
+                <p>拖入图片或点击选择</p>
+                <small>支持 JPG/PNG/WebP · 建议小于 20MB</small>
+              </div>
+            </div>
+            <input id="editFileInput" type="file" accept="image/*" hidden>
+          </div>
+
+          <aside class="edit-params">
+            <div class="edit-params-head">
+              <span class="eyebrow">参数</span>
+              <h3 id="editToolTitle">换背景</h3>
+            </div>
+            <div id="editParams" class="edit-params-body"></div>
+            <div class="edit-params-foot">
+              <button class="ghost-btn" data-action="edit-reset" type="button">重置</button>
+              <button class="primary-btn" data-action="edit-apply" type="button">应用</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+   </section>
+ </main>
+
+  <div id="toast" class="toast"></div>
+  <div id="imageModal" class="image-modal" aria-hidden="true">
+    <button class="modal-close" data-action="close-modal">关闭</button>
+    <button class="modal-nav modal-prev" data-action="prev-image" aria-label="上一张">&lt;</button>
+    <img id="modalImage" alt="预览图片">
+    <button class="modal-nav modal-next" data-action="next-image" aria-label="下一张">&gt;</button>
+  </div>
+  <div id="videoModal" class="video-modal" aria-hidden="true">
+    <button class="modal-close" data-action="close-video">关闭</button>
+    <video id="modalVideo" controls playsinline></video>
+  </div>
+  <div id="detailDrawer" class="drawer" aria-hidden="true"></div>
+
+  <script src="/dashboard/assets/js/app.js?v=20260626-size"></script>
+</body>
+</html>

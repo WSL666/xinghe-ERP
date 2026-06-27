@@ -1,0 +1,662 @@
+﻿@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@400;500;600&display=swap');
+
+:root {
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Outfit', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f9fafb;
+  color: #0a1b33;
+  font-family: var(--font-sans);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+}
+
+.page-shell {
+  width: 100%;
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.top-navbar {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto 20px;
+  padding: 0.25rem 0.25rem;
+}
+
+.logo-link,
+.logo {
+  display: block;
+}
+
+.logo {
+  width: 32px;
+  height: 32px;
+}
+
+.desktop-links,
+.desktop-actions {
+  display: none;
+}
+
+.desktop-links {
+  align-items: center;
+  gap: 2rem;
+}
+
+.desktop-links a {
+  color: #0a1b33;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: opacity 160ms ease;
+}
+
+.desktop-links a:hover {
+  opacity: 0.7;
+}
+
+.desktop-actions {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.btn:active {
+  transform: scale(0.95);
+}
+
+.btn-primary {
+  padding: 0.625rem 1.25rem;
+  color: #fff;
+  background: #7342E2;
+}
+
+.btn-primary:hover {
+  box-shadow: 0 10px 28px rgba(115, 66, 226, 0.24);
+}
+
+.btn-login {
+  padding: 0.625rem 1.25rem;
+  color: #0a1b33;
+  background: #F2F2EE;
+}
+
+.btn-enterprise {
+  padding: 0.625rem 1.25rem;
+  color: #fff;
+  text-decoration: none;
+  background: #5B21B6;
+}
+
+.btn-enterprise:hover {
+  box-shadow: 0 10px 28px rgba(91, 33, 182, 0.28);
+}
+
+.hero-container {
+  position: relative;
+  width: 100%;
+  max-width: 1400px;
+  height: 600px;
+  display: flex;
+  flex-direction: column;
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.5);
+  border-radius: 48px;
+  background: #fff;
+  box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.03);
+}
+
+.video-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hero-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.05);
+  transition: transform 1000ms ease;
+}
+
+.content-wrapper {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 7rem 2rem 0;
+}
+
+.text-layer {
+  animation-delay: 220ms;
+}
+
+.content-wrapper h1 {
+  margin: 0;
+  color: #0a1b33;
+  font-family: var(--font-display);
+  font-size: 42px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.content-wrapper p {
+  max-width: 460px;
+  margin: 1.25rem 0 0;
+  color: #64748b;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.nav-layer {
+  animation-delay: 80ms;
+}
+
+.animate-in {
+  opacity: 0;
+  transform: translateY(14px);
+  animation: fadeSlideUp 650ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes fadeSlideUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.marquee-shell {
+  width: 100%;
+  max-width: 1400px;
+  margin: 2.5rem auto 0;
+  overflow: hidden;
+  mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent);
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 1rem;
+  animation: marquee 26s linear infinite;
+}
+
+.marquee-shell:hover .marquee-track {
+  animation-play-state: paused;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.logo-card {
+  position: relative;
+  width: 10rem;
+  height: 6rem;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid rgba(226, 232, 240, 0.6);
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: border-color 160ms ease;
+}
+
+.logo-card:hover {
+  border-color: #cbd5e1;
+}
+
+.logo-glow {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(1.5);
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.logo-card:hover .logo-glow {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.logo-card img {
+  position: relative;
+  z-index: 2;
+  max-width: 86px;
+  max-height: 36px;
+  object-fit: contain;
+  transition: filter 180ms ease;
+}
+
+.logo-card:hover img {
+  filter: brightness(0) invert(1);
+}
+
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.auth-overlay.open {
+  display: flex;
+}
+
+.auth-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.24);
+  backdrop-filter: blur(3px);
+}
+
+.auth-modal {
+  position: relative;
+  z-index: 1;
+  display: none;
+  width: min(100%, 520px);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.2);
+}
+
+.auth-modal.active {
+  display: block;
+  animation: modalIn 180ms ease-out both;
+}
+
+.auth-message {
+  position: absolute;
+  left: 50%;
+  top: -48px;
+  display: none;
+  min-width: 220px;
+  max-width: calc(100% - 60px);
+  transform: translateX(-50%);
+  border: 1px solid rgba(115, 66, 226, 0.16);
+  border-radius: 999px;
+  padding: 10px 18px;
+  color: #4c2bb6;
+  background: rgba(245, 242, 255, 0.98);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
+  font-size: 15px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.auth-message.show {
+  display: block;
+  animation: messageIn 160ms ease-out both;
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+.auth-register {
+  min-height: 660px;
+  padding: 44px 56px 38px 42px;
+}
+
+.auth-login {
+  min-height: 475px;
+  padding: 42px 56px 36px 42px;
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.auth-close {
+  position: absolute;
+  top: 18px;
+  right: 34px;
+  border: 0;
+  color: #8c8c8c;
+  background: transparent;
+  font-size: 40px;
+  font-weight: 300;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.auth-modal h2 {
+  margin: 0 0 18px;
+  color: #111;
+  font-size: 26px;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.auth-form {
+  display: grid;
+  /* minmax(0,1fr) pins the track's min-size to 0 so a width:100% input can't
+     push the implicit auto column past the 520px modal. The default auto track
+     sizes to content min-width, which overflows in some Chromium builds (Edge). */
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+
+.auth-login .auth-form {
+  gap: 22px;
+}
+
+.auth-form label {
+  position: relative;
+  display: block;
+  /* grid items default to min-width:auto, letting content force the track wider
+     than the modal. 0 lets the label shrink with the minmax(0,1fr) track. */
+  min-width: 0;
+}
+
+.auth-form input[type="text"],
+.auth-form input[type="tel"],
+.auth-form input[type="email"],
+.auth-form input[type="password"] {
+  width: 100%;
+  max-width: 100%;
+  height: 52px;
+  border: 1px solid #dedede;
+  border-radius: 999px;
+  padding: 0 26px;
+  outline: 0;
+  color: #333;
+  background: #fff;
+  font-size: 21px;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.auth-form input::placeholder {
+  color: #747b82;
+}
+
+.auth-form input:focus {
+  border-color: #7342E2;
+  box-shadow: 0 0 0 3px rgba(115, 66, 226, 0.12);
+}
+
+.required-field::after {
+  content: "*";
+  position: absolute;
+  top: 13px;
+  right: 14px;
+  color: #7342E2;
+  font-size: 22px;
+  line-height: 1;
+}
+
+/* Enterprise onboarding panel has 6 fields, so it needs its own compact
+   rhythm: smaller inputs, tighter gaps, and an inner padding box so content
+   (and the required asterisk) never reaches the modal edge. */
+.auth-modal.auth-enterprise {
+  padding: 28px 30px;
+  box-sizing: border-box;
+}
+
+/* Modal padding shifts the padding-box the absolute close button is anchored
+   to; compensate so it stays at the same physical spot as login/register. */
+.auth-enterprise .auth-close {
+  right: 34px;
+}
+
+.auth-enterprise .auth-form {
+  gap: 12px;
+}
+
+.verify-field,
+.captcha-field {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 212px;
+}
+
+.verify-field input,
+.captcha-field input {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+}
+
+.code-button {
+  height: 52px;
+  border: 1px solid #dedede;
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  color: #7342E2;
+  background: #f1edff;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.captcha-code {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  border-radius: 0 999px 999px 0;
+  color: #fff;
+  background: #192837;
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  transform: skewX(-4deg);
+  user-select: none;
+}
+
+.agreement-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  color: #5c5c5c;
+  font-size: 17px;
+}
+
+.agreement-row input {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: #7342E2;
+}
+
+.agreement-row a {
+  color: #2563eb;
+}
+
+.agreement-row.required-field::after {
+  display: none;
+}
+
+.submit-button {
+  width: 100%;
+  height: 54px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: #7342E2;
+  font-size: 22px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.auth-login .submit-button {
+  margin-top: 8px;
+  background: #7342E2;
+}
+
+.submit-button:hover {
+  transform: translateY(-1px);
+  background: #6334ce;
+}
+
+.switch-line {
+  margin: 20px 0 0;
+  color: #9b9b9b;
+  font-size: 20px;
+  text-align: center;
+}
+
+.auth-login .switch-line {
+  margin-top: 22px;
+}
+
+.switch-line button {
+  border: 0;
+  color: #7342E2;
+  background: transparent;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+@media (min-width: 768px) {
+  .top-navbar {
+    padding: 0.25rem 0.5rem;
+  }
+
+  .desktop-links,
+  .desktop-actions {
+    display: flex;
+  }
+
+  .content-wrapper {
+    padding: 9rem 4rem 0;
+  }
+
+  .content-wrapper h1 {
+    font-size: 56px;
+  }
+
+  .content-wrapper p {
+    font-size: 15px;
+  }
+}
+
+@media (max-width: 680px) {
+  .page-shell {
+    padding: 12px;
+  }
+
+  .hero-container {
+    height: 600px;
+    border-radius: 32px;
+  }
+
+  .content-wrapper h1 {
+    font-size: 38px;
+  }
+
+  .auth-modal {
+    width: min(100%, 560px);
+    padding: 42px 28px 36px;
+    min-height: auto;
+  }
+
+  .auth-close {
+    top: 18px;
+    right: 26px;
+  }
+
+  .auth-form input[type="text"],
+  .auth-form input[type="tel"],
+  .auth-form input[type="email"],
+  .auth-form input[type="password"] {
+    height: 54px;
+    font-size: 20px;
+  }
+
+  .verify-field,
+  .captcha-field {
+    grid-template-columns: minmax(0, 1fr) 155px;
+  }
+
+  .code-button {
+    height: 54px;
+    font-size: 18px;
+  }
+
+  .captcha-code {
+    height: 54px;
+    font-size: 34px;
+  }
+
+  .agreement-row,
+  .switch-line {
+    font-size: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .content-wrapper {
+    padding: 7rem 1.25rem 0;
+  }
+}

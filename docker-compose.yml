@@ -1,0 +1,73 @@
+name: product-pipeline-digital-app
+
+networks:
+  product-pipeline-network:
+    driver: bridge
+
+volumes:
+  product-pipeline-postgres-data:
+  product-pipeline-redis-data:
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: product-pipeline-postgres
+    hostname: product-pipeline-postgres
+    restart: unless-stopped
+    networks:
+      - product-pipeline-network
+    ports:
+      - "5433:5432"
+    environment:
+      TZ: Asia/Shanghai
+      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_DB: product_pipeline
+      POSTGRES_USER: product_pipeline_user
+      POSTGRES_PASSWORD: product_pipeline_dev_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8"
+    volumes:
+      - product-pipeline-postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    command:
+      - postgres
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "maintenance_work_mem=128MB"
+      - "-c"
+      - "max_connections=200"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U product_pipeline_user -d product_pipeline"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: product-pipeline-redis
+    hostname: product-pipeline-redis
+    restart: unless-stopped
+    networks:
+      - product-pipeline-network
+    ports:
+      - "6380:6379"
+    volumes:
+      - product-pipeline-redis-data:/data
+    command:
+      - redis-server
+      - "--appendonly"
+      - "yes"
+      - "--save"
+      - "60"
+      - "1000"
+      - "--maxmemory-policy"
+      - "noeviction"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

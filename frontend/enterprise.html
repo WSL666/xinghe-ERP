@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>企业管理</title>
+  <link rel="stylesheet" href="/frontend/styles.css">
+  <style>
+    .ent-shell { min-height: 100vh; background: #0a0e1a; color: #e8ecf3; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .ent-top { display: flex; align-items: center; justify-content: space-between; padding: 1rem 2rem; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .ent-top .brand { font-weight: 700; font-size: 1.05rem; }
+    .ent-top .nav a { color: #9aa4b2; text-decoration: none; margin-left: 1.25rem; font-size: 0.875rem; }
+    .ent-top .nav a:hover { color: #fff; }
+    .ent-body { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+    .ent-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+    .ent-head h1 { margin: 0 0 0.3rem; font-size: 1.6rem; }
+    .ent-head .meta { color: #9aa4b2; font-size: 0.85rem; }
+    .invite-box { background: #121826; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 1.1rem 1.3rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .invite-box .lbl { font-size: 0.8rem; color: #9aa4b2; margin-bottom: 0.3rem; }
+    .invite-box .code { font-size: 1.25rem; font-weight: 700; letter-spacing: 1px; }
+    .invite-actions { display: flex; gap: 0.6rem; }
+    .btn { border: 0; border-radius: 999px; padding: 0.55rem 1.1rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+    .btn-fill { color: #fff; background: #7342E2; }
+    .btn-ghost { color: #cdd4df; background: rgba(255,255,255,0.07); }
+    .btn-danger { color: #fff; background: #b0322f; }
+    table.ent-table { width: 100%; border-collapse: collapse; background: #121826; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; overflow: hidden; }
+    .ent-table th, .ent-table td { padding: 0.8rem 1rem; text-align: left; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.85rem; }
+    .ent-table th { color: #9aa4b2; font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.5px; }
+    .ent-table tr:last-child td { border-bottom: 0; }
+    .role-tag { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; }
+    .role-owner { background: rgba(115,66,226,0.25); color: #c4b0ff; }
+    .role-admin { background: rgba(46,150,255,0.2); color: #9cc8ff; }
+    .role-member { background: rgba(255,255,255,0.08); color: #cdd4df; }
+    .empty { text-align: center; color: #9aa4b2; padding: 3rem 1rem; }
+    .toast { position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%); background: #1f2a3c; color: #fff; padding: 0.7rem 1.2rem; border-radius: 999px; font-size: 0.85rem; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <main class="ent-shell">
+    <header class="ent-top">
+      <div class="brand" id="brandName">企业管理</div>
+      <nav class="nav">
+        <a href="/dashboard">工作台</a>
+        <a href="/" id="logoutLink">退出</a>
+      </nav>
+    </header>
+
+    <div class="ent-body">
+      <div class="ent-head">
+        <div>
+          <h1 id="entName">—</h1>
+          <div class="meta" id="entMeta"></div>
+        </div>
+      </div>
+
+      <div class="invite-box">
+        <div>
+          <div class="lbl">员工邀请码（员工注册时填入即可加入企业）</div>
+          <div class="code" id="inviteCode">—</div>
+        </div>
+        <div class="invite-actions">
+          <button class="btn btn-fill" id="copyInvite">复制邀请码</button>
+          <button class="btn btn-ghost" id="regenInvite" style="display:none">重置邀请码</button>
+        </div>
+      </div>
+
+      <table class="ent-table">
+        <thead>
+          <tr>
+            <th>成员</th><th>账号</th><th>角色</th><th>采集数</th><th>成功</th><th>失败</th><th>最后活动</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="memberBody">
+          <tr><td colspan="8" class="empty">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="toast" id="toast"></div>
+  </main>
+
+  <script>
+    const $ = (s) => document.querySelector(s);
+    const toastEl = $("#toast");
+    let toastTimer = null;
+    function toast(text) {
+      toastEl.textContent = text;
+      toastEl.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2000);
+    }
+
+    async function api(path, options = {}) {
+      const resp = await fetch(path, { credentials: "include", ...options,
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) } });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.ok === false) throw new Error(data.error || "请求失败 (" + resp.status + ")");
+      return data;
+    }
+
+    function roleTag(role) {
+      const map = { owner: "role-owner", admin: "role-admin", member: "role-member" };
+      const label = { owner: "企业主", admin: "管理员", member: "员工" }[role] || role;
+      return '<span class="role-tag ' + (map[role] || "role-member") + '">' + label + '</span>';
+    }
+
+    function esc(s) {
+      return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+
+    async function loadMembers() {
+      try {
+        const data = await api("/api/enterprise/members");
+        const ent = data.enterprise || {};
+        $("#entName").textContent = ent.display_name || ent.name || "—";
+        $("#entMeta").textContent = "状态：" + (ent.status || "—") + " · 成员 " + (data.members ? data.members.length : 0) + " 人";
+        $("#inviteCode").textContent = ent.invite_code || "—";
+        const body = $("#memberBody");
+        if (!data.members || data.members.length === 0) {
+          body.innerHTML = '<tr><td colspan="8" class="empty">暂无成员</td></tr>';
+          return;
+        }
+        body.innerHTML = data.members.map((m) => {
+          const isOwner = m.role === "owner";
+          const acts = isOwner ? '<span style="color:#9aa4b2">—</span>' :
+            '<select class="role-sel btn-ghost" data-id="' + m.id + '" style="background:rgba(255,255,255,0.07);color:#fff;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:0.25rem 0.4rem">' +
+              '<option value="admin"' + (m.role === "admin" ? " selected" : "") + '>管理员</option>' +
+              '<option value="member"' + (m.role === "member" ? " selected" : "") + '>员工</option></select>' +
+            ' <button class="btn btn-danger rm-btn" data-id="' + m.id + '" style="padding:0.35rem 0.7rem">移除</button>';
+          return '<tr>' +
+            '<td>' + esc(m.display_name || m.account) + '</td>' +
+            '<td>' + esc(m.account) + '</td>' +
+            '<td>' + roleTag(m.role) + '</td>' +
+            '<td>' + (m.import_count || 0) + '</td>' +
+            '<td style="color:#7ee0a3">' + (m.success_count || 0) + '</td>' +
+            '<td style="color:#ff8a8a">' + (m.error_count || 0) + '</td>' +
+            '<td>' + esc(m.last_active_at || "—") + '</td>' +
+            '<td>' + acts + '</td>' +
+          '</tr>';
+        }).join("");
+        body.querySelectorAll(".role-sel").forEach((sel) => {
+          sel.addEventListener("change", async (e) => {
+            try { await api("/api/enterprise/members/" + e.target.dataset.id + "/role", { method: "POST", body: JSON.stringify({ role: e.target.value }) }); toast("角色已更新"); }
+            catch (err) { toast(err.message); loadMembers(); }
+          });
+        });
+        body.querySelectorAll(".rm-btn").forEach((btn) => {
+          btn.addEventListener("click", async (e) => {
+            if (!confirm("确定移除该成员？")) return;
+            try { await api("/api/enterprise/members/" + e.target.dataset.id, { method: "DELETE" }); toast("成员已移除"); loadMembers(); }
+            catch (err) { toast(err.message); }
+          });
+        });
+      } catch (err) {
+        $("#memberBody").innerHTML = '<tr><td colspan="8" class="empty">' + esc(err.message) + '</td></tr>';
+      }
+    }
+
+    async function init() {
+      try {
+        const me = await api("/api/enterprise/me");
+        const ent = me.enterprise || {};
+        if (ent.role === "owner") $("#regenInvite").style.display = "";
+      } catch {
+        window.location.href = "/";
+        return;
+      }
+      loadMembers();
+      $("#copyInvite").addEventListener("click", async () => {
+        const code = $("#inviteCode").textContent;
+        try { await navigator.clipboard.writeText(code); toast("邀请码已复制"); }
+        catch { toast("复制失败，请手动复制：" + code); }
+      });
+      $("#regenInvite").addEventListener("click", async () => {
+        if (!confirm("重置后旧邀请码立即失效，确定？")) return;
+        try { const d = await api("/api/enterprise/invite/regenerate", { method: "POST" }); $("#inviteCode").textContent = d.invite_code; toast("邀请码已重置"); }
+        catch (err) { toast(err.message); }
+      });
+      $("#logoutLink").addEventListener("click", async (e) => {
+        e.preventDefault();
+        await api("/api/auth/logout", { method: "POST" }).catch(() => {});
+        window.location.href = "/";
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>

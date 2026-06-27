@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>企业入驻</title>
+  <link rel="stylesheet" href="/frontend/styles.css">
+  <style>
+    .onboard-shell { min-height: 100vh; background: #0a0e1a; color: #fff; display: flex; align-items: center; justify-content: center; padding: 2.5rem 1rem; }
+    .onboard-card { width: 100%; max-width: 520px; background: #121826; border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 2rem 2.25rem; box-shadow: 0 30px 60px rgba(0,0,0,0.45); }
+    .onboard-card h1 { font-size: 1.5rem; margin: 0 0 0.35rem; }
+    .onboard-card .sub { color: #9aa4b2; font-size: 0.875rem; margin: 0 0 1.5rem; }
+    .onboard-card label { display: block; margin-bottom: 0.9rem; }
+    .onboard-card input { width: 100%; box-sizing: border-box; padding: 0.7rem 0.85rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: #0d1320; color: #fff; font-size: 0.9rem; }
+    .onboard-card input:focus { outline: none; border-color: #7342E2; }
+    .onboard-card .field-label { display: block; font-size: 0.8rem; color: #9aa4b2; margin-bottom: 0.35rem; }
+    .onboard-card .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .onboard-card .submit { width: 100%; padding: 0.8rem; border: 0; border-radius: 999px; font-weight: 600; font-size: 0.95rem; cursor: pointer; color: #fff; background: #7342E2; margin-top: 0.4rem; }
+    .onboard-card .submit:hover { box-shadow: 0 10px 28px rgba(115, 66, 226, 0.4); }
+    .onboard-card .msg { min-height: 1.2rem; font-size: 0.825rem; color: #ff8a8a; margin: 0 0 0.5rem; }
+    .onboard-card .msg.ok { color: #7ee0a3; }
+    .onboard-card .back { display: inline-block; margin-top: 1rem; color: #9aa4b2; font-size: 0.85rem; text-decoration: none; }
+    .onboard-card .back:hover { color: #fff; }
+  </style>
+</head>
+<body>
+  <main class="onboard-shell">
+    <form class="onboard-card" id="onboardForm">
+      <h1>企业入驻</h1>
+      <p class="sub">开通企业后，你将成为企业管理员，并获得专属邀请码用于邀请员工加入。</p>
+      <label>
+        <span class="field-label">企业名称</span>
+        <input type="text" name="enterprise_name" required minlength="2" placeholder="例如：星河跨境贸易">
+      </label>
+      <div class="row2">
+        <label>
+          <span class="field-label">联系人姓名</span>
+          <input type="text" name="contact_name" placeholder="联系人">
+        </label>
+        <label>
+          <span class="field-label">联系电话</span>
+          <input type="text" name="contact_phone" placeholder="手机号">
+        </label>
+      </div>
+      <label>
+        <span class="field-label">管理员账号</span>
+        <input type="text" name="account" required minlength="3" placeholder="手机号 / 邮箱">
+      </label>
+      <div class="row2">
+        <label>
+          <span class="field-label">密码</span>
+          <input type="password" name="password" required minlength="6" placeholder="至少 6 位">
+        </label>
+        <label>
+          <span class="field-label">确认密码</span>
+          <input type="password" name="confirmPassword" required placeholder="再次输入">
+        </label>
+      </div>
+      <p class="msg" id="onboardMsg"></p>
+      <button class="submit" type="submit">开通企业并登录</button>
+      <a class="back" href="/">← 返回首页</a>
+    </form>
+  </main>
+  <script>
+    const form = document.getElementById("onboardForm");
+    const msg = document.getElementById("onboardMsg");
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const fd = new FormData(form);
+      const password = fd.get("password");
+      if (password !== fd.get("confirmPassword")) {
+        msg.textContent = "两次输入的密码不一致。";
+        msg.className = "msg";
+        return;
+      }
+      const payload = {
+        enterprise_name: fd.get("enterprise_name").trim(),
+        contact_name: fd.get("contact_name").trim(),
+        contact_phone: fd.get("contact_phone").trim(),
+        account: fd.get("account").trim(),
+        password,
+        display_name: fd.get("account").trim(),
+      };
+      msg.textContent = "正在开通...";
+      msg.className = "msg";
+      try {
+        const resp = await fetch("/api/enterprise/onboard", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || data.ok === false) {
+          throw new Error(data.error || "请求失败 (" + resp.status + ")");
+        }
+        msg.textContent = "开通成功，正在进入工作台...";
+        msg.className = "msg ok";
+        window.location.href = "/dashboard";
+      } catch (err) {
+        msg.textContent = err.message;
+        msg.className = "msg";
+      }
+    });
+  </script>
+</body>
+</html>
