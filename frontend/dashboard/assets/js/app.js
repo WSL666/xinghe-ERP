@@ -150,7 +150,6 @@ function clearSession() {
 }
 
 function showApp() {
-  $("#loginView").classList.add("is-hidden");
   $("#appView").classList.remove("is-hidden");
   syncApiText();
   setView(state.view);
@@ -158,12 +157,7 @@ function showApp() {
   startLiveSync();
 }
 
-function showLogin() {
-  $("#loginView").classList.remove("is-hidden");
-  $("#appView").classList.add("is-hidden");
-  stopLiveSync();
-  $("#loginApiBase").value = state.apiBase;
-}
+
 
 function syncApiText() {
   $("#sideApiBase").textContent = state.apiBase;
@@ -583,24 +577,6 @@ function stopLiveSync() {
   if (_pollTimer) { clearTimeout(_pollTimer); _pollTimer = null; }
 }
 
-async function loginUser(account, password) {
-  const data = await apiFetch("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ account, password })
-  });
-  setSession(data.user);
-  return data.user;
-}
-
-async function registerUser(account, password) {
-  const data = await apiFetch("/api/auth/register", {
-    method: "POST",
-    body: JSON.stringify({ account, password, display_name: account })
-  });
-  setSession(data.user);
-  return data.user;
-}
-
 async function loadCurrentUser() {
   const data = await apiFetch("/api/auth/me");
   setSession(data.user);
@@ -847,29 +823,6 @@ async function copyText(value) {
 }
 
 function bindEvents() {
-  $("#loginForm").addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const username = $("#loginUser").value.trim();
-    const password = $("#loginPassword").value;
-    state.apiBase = normalizeApiBase($("#loginApiBase").value);
-    localStorage.setItem(STORAGE_KEYS.apiBase, state.apiBase);
-    try {
-      await loginUser(username, password);
-      showApp();
-    } catch (error) {
-      const shouldRegister = confirm("登录失败。是否立即注册该账号？");
-      if (!shouldRegister) {
-        toast(error.message, "error");
-        return;
-      }
-      try {
-        await registerUser(username, password);
-        showApp();
-      } catch (registerError) {
-        toast(registerError.message, "error");
-      }
-    }
-  });
 
   $("#settingsForm").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -921,7 +874,7 @@ function bindEvents() {
           await apiFetch("/api/auth/logout", { method: "POST" });
         } catch {}
         clearSession();
-        showLogin();
+        window.location.replace("/");
       }
       if (action === "open-upload") $("#xlsxInput").click();
       if (action === "play-video") openVideo(actionButton.dataset.src, actionButton.dataset.poster);
@@ -1015,7 +968,7 @@ async function init() {
     await loadCurrentUser();
     showApp();
   } catch {
-    showLogin();
+    window.location.replace("/");
   }
 }
 
