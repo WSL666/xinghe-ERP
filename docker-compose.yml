@@ -23,7 +23,7 @@ services:
       PGDATA: /var/lib/postgresql/data/pgdata
       POSTGRES_DB: product_pipeline
       POSTGRES_USER: product_pipeline_user
-      POSTGRES_PASSWORD: db_d791b2a581e437ba8e839d52
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8"
     volumes:
       - product-pipeline-postgres-data:/var/lib/postgresql/data
@@ -52,12 +52,25 @@ services:
     restart: unless-stopped
     networks:
       - product-pipeline-network
-    ports:
-      - "127.0.0.1:6380:6379"
+    # 不再暴露 TCP 端口。Redis 只通过 Unix socket 通信,
+    # VSCode Remote 只能转发 TCP 端口、无法转发 socket 文件,
+    # 从而从物理上根除"VSCode 端口转发撑爆 Redis 连接数"的问题。
+    # 后端通过挂载的 socket 文件连接: unix:///var/run/product-pipeline/redis.sock
+    ports: []
     volumes:
       - product-pipeline-redis-data:/data
+      # socket 目录: 容器内 /run/redis 与宿主机 /var/run/product-pipeline 共享,
+      # 后端(uvicorn)直接读宿主机的 /var/run/product-pipeline/redis.sock 连 Redis
+      - /var/run/product-pipeline:/run/redis
     command:
       - redis-server
+      # 关闭 TCP 监听,只走 Unix socket
+      - "--port"
+      - "0"
+      - "--unixsocket"
+      - "/run/redis/redis.sock"
+      - "--unixsocketperm"
+      - "775"
       - "--appendonly"
       - "yes"
       - "--save"
@@ -69,8 +82,11 @@ services:
       - "120"
       - "--tcp-keepalive"
       - "60"
+      # 兜底:即使有异常连接也不无限堆积,空闲 120s 回收,显式上限 256
+      - "--maxclients"
+      - "256"
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-s", "/run/redis/redis.sock", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

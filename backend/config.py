@@ -67,7 +67,7 @@ def get_settings() -> Settings:
             "DATABASE_URL",
             "postgresql://product_pipeline_user:product_pipeline_dev_password@127.0.0.1:5433/product_pipeline",
         ),
-        redis_url=os.getenv("REDIS_URL", "redis://127.0.0.1:6380/0"),
+        redis_url=os.getenv("REDIS_URL", "unix:///var/run/product-pipeline/redis.sock?db=0"),
         secret_key=os.getenv("APP_SECRET_KEY", "dev-secret-change-me"),
         session_cookie_name=os.getenv("SESSION_COOKIE_NAME", "ppe_session"),
         session_max_age_seconds=_int_env("SESSION_MAX_AGE_SECONDS", 60 * 60 * 24 * 14),

@@ -1,0 +1,25 @@
+[Unit]
+Description=Product Pipeline FastAPI (uvicorn)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/workspace/wsl-workplace/backend
+Environment="PATH=/root/miniconda3/envs/wsl-test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# 开机/重启前自动创建 Redis Unix socket 目录。
+# /var/run 是 tmpfs,每次重启会清空;若不重建,Redis 容器挂载到空目录,
+# socket 路径 /var/run/product-pipeline/redis.sock 失效,后端连不上 Redis。
+# '-': 即使目录已存在也不报错(ExecStartPre 的标准用法)。
+ExecStartPre=/usr/bin/install -d -m 0777 /var/run/product-pipeline
+
+ExecStart=/root/miniconda3/envs/wsl-test/bin/uvicorn main:app --host 127.0.0.1 --port 6688 --workers 2
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/product-pipeline.log
+StandardError=append:/var/log/product-pipeline.log
+
+[Install]
+WantedBy=multi-user.target
