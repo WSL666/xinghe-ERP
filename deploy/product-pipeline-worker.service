@@ -10,9 +10,9 @@ WorkingDirectory=/root/workspace/wsl-workplace/backend
 Environment="PATH=/root/miniconda3/envs/wsl-test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # 每个 worker 进程的线程数(并发任务数)。按服务器内存调:
 #   4C/7G 测试机建议 6~8;升到 16G 后可到 12~16
-Environment="PIPELINE_CONCURRENCY=8"
+Environment="PIPELINE_CONCURRENCY=32"
 # 每用户最多同时跑几个任务(防止单人占满所有 worker)
-Environment="PIPELINE_MAX_PER_USER=4"
+Environment="PIPELINE_MAX_PER_USER=1"
 ExecStart=/root/miniconda3/envs/wsl-test/bin/python worker.py
 Restart=always
 RestartSec=5

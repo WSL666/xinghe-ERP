@@ -32,9 +32,11 @@
   - **web 进程**：`product-pipeline.service`（uvicorn 单进程，只接 HTTP / 入队，`--workers` 不需要再设）
   - **worker 进程**：`product-pipeline-worker.service`（`python worker.py`，只消费 Redis 队列跑流水线）
   - 两者通过 Redis 队列解耦：web 重启不杀在跑的任务；想加并发只调 worker，不动 web；未来 worker 可单独搬到别的机器
+- **当前生产配置**：`PIPELINE_CONCURRENCY=32`（全局 32 个 worker 线程）+ `PIPELINE_MAX_PER_USER=1`（每人同时只跑 1 条），**同时支持 32 人各跑 1 条**，第 33 人自动排队
 - **并发模型**：
-  - worker 进程内启动 `PIPELINE_CONCURRENCY` 个线程（默认 8）同时 `BRPOP` 同一个 Redis 队列
+  - worker 进程内启动 `PIPELINE_CONCURRENCY` 个线程同时 `BRPOP` 同一个 Redis 队列
   - 每用户最多 `PIPELINE_MAX_PER_USER` 个并发任务（同一用户超额任务回队尾等待）
+  - 空闲线程几乎不占内存（阻塞在 BRPOP 等活），可放心开多
   - 并发计数存 Redis（原子 INCR/DECR + TTL），多进程共享、崩溃不泄漏
   - 兼容旧用法：web 设 `PIPELINE_EMBED_WORKERS=1` 时仍在 web 内起 worker（仅测试用，生产不开）
 
@@ -42,29 +44,30 @@
 
 两个环境变量控制并发，**改完要重启 worker 才生效**：
 
-| 变量 | 作用 | 在哪设 | 默认 |
-|------|------|--------|------|
-| `PIPELINE_CONCURRENCY` | worker 进程内线程数（全局并发上限） | worker service 的 `Environment=` 行 | 8 |
-| `PIPELINE_MAX_PER_USER` | 单用户最多同时跑几个任务 | worker service 的 `Environment=` 行 或 `backend/.env` | 4 |
+| 变量 | 作用 | 在哪设 | 生产值 |
+|------|------|--------|--------|
+| `PIPELINE_CONCURRENCY` | worker 进程内线程数（全局并发上限 = 同时能跑几条） | worker service 的 `Environment=` 行 | **32** |
+| `PIPELINE_MAX_PER_USER` | 单用户最多同时跑几个任务（防霸占） | worker service 的 `Environment=` 行 或 `backend/.env` | **1** |
 
 ```bash
-# 例: 想让全局跑 10 个任务、每人最多 2 个
+# 例: 想支持 32 人每人 1 条(当前生产配置)
 # 编辑 /etc/systemd/system/product-pipeline-worker.service
-#   Environment="PIPELINE_CONCURRENCY=10"
-#   Environment="PIPELINE_MAX_PER_USER=2"
+#   Environment="PIPELINE_CONCURRENCY=32"
+#   Environment="PIPELINE_MAX_PER_USER=1"
 systemctl daemon-reload
 systemctl restart product-pipeline-worker.service
 tail -3 /var/log/product-pipeline-worker.log   # 确认打印的并发数已变
 ```
 
-**参考值**（4C/7G 无 swap 测试机）：
+**容量推算**（4C/7G 无 swap，可用约 3.3G，每任务峰值 ~30-50MB）：
 
-| 并发(CONCURRENCY) | 每用户上限 | 内存占用 | 说明 |
-|-------------------|-----------|----------|------|
-| 4 | 2 | ~200MB | 保守，稳定 |
-| 8 | 4 | ~400MB | 推荐，安全 |
-| 12 | 4 | ~600MB | 偏紧，要盯内存 |
-| 16+ | — | 800MB+ | 不建议，无 swap 容易 OOM |
+| 配置 | 同时支持人数 | 内存占用 | 说明 |
+|------|------------|----------|------|
+| `CONCURRENCY=16, MAX_PER_USER=1` | 15 人 | ~480MB | 试水，很安全 |
+| `CONCURRENCY=32, MAX_PER_USER=1` | **32 人** | **~960MB** | **当前生产，推荐甜点位** |
+| `CONCURRENCY=48, MAX_PER_USER=1` | 45 人 | ~1.4G | 偏紧，要盯内存，API 限流风险 |
+
+> 内存不是唯一瓶颈：并发越高，同时调视觉/图片生成 API 的请求越多，API 供应商限流和 key 池容量才是真正的天花板。建议先跑 32，观察 key 池命中率和排队情况再决定是否上调。
 
 
 > 端口：生产对外是 **8443（HTTPS，Caddy）**，应用本体是 **6688（HTTP，内网）**，PostgreSQL 绑 `127.0.0.1:5433`，Redis 无 TCP 端口。
@@ -228,8 +231,8 @@ python -m uvicorn main:app --reload --host 127.0.0.1 --port 6688
 | `APP_SECRET_KEY` | Session token 签名密钥 | - |
 | `CORS_ORIGINS` | 生产前端白名单（逗号分隔） | fallback 到 `localhost:8443` |
 | `AUTO_VERIFY_USERS` | 注册是否免验证 | `true` |
-| `PIPELINE_CONCURRENCY` | 每进程 worker 线程数 | `2` |
-| `PIPELINE_MAX_PER_USER` | 每用户最大并发任务数 | `2`（生产 `.env`） |
+| `PIPELINE_CONCURRENCY` | worker 线程数（全局并发） | `32`（生产） |
+| `PIPELINE_MAX_PER_USER` | 每用户最大并发任务数 | `1`（生产） |
 | `step2_*` | DeepSeek 标题翻译配置（base_url/api_key/model） | - |
 | `CHAT_*` / `OPENAI_CHAT_BASE_URL` | 视觉解析模型配置 | - |
 | `VIBE_*` / `IMAGE_MODEL` / `IMAGE_SIZE` | 图生图模型配置 | - |
