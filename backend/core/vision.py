@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from openai import APITimeoutError, OpenAI
 
-from ._base import PipelineStepError, VISION_MAX_ATTEMPTS, VISION_TIMEOUT, log, parse_json_response, require_env
+from core.base import PipelineStepError, VISION_MAX_ATTEMPTS, VISION_TIMEOUT, log, parse_json_response, require_env
 
 
 def build_vision_messages(prompt: str, image_b64_list: list[str]) -> list[dict[str, Any]]:

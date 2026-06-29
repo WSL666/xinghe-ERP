@@ -1,11 +1,10 @@
-"""Redis-backed pipeline queue with crash recovery and graceful shutdown.
+"""Redis 队列 + worker 线程(平台无关)。
 
-enqueue_pipeline() pushes work onto a Redis list; start_workers() spins up
-consumer threads that BRPOP and call the handler. The FastAPI process owns the
-workers, so a task that is mid-flight when the process is killed is re-enqueued
-on the next startup by main startup recovery (it scans the DB for non-terminal
-imports). stop_workers() is wired to the app lifespan so reloads/restarts don't
-leave zombie worker threads holding DB connections.
+worker 取出任务后,不直接跑业务,而是调 platforms.dispatch.execute() 分发
+到对应平台。这样队列层永远不用改,加平台只动 platforms/。
+
+从旧 pipeline_queue.py 迁移,仅改 worker handler 为 dispatch,并保留
+socket_timeout 修复。
 """
 from __future__ import annotations
 
@@ -35,17 +34,27 @@ logger = logging.getLogger("pipeline.queue")
 def _client() -> redis_lib.Redis:
     global _redis_client
     if _redis_client is None:
-        _redis_client = redis_lib.from_url(get_settings().redis_url, decode_responses=True)
+        _redis_client = redis_lib.from_url(
+            get_settings().redis_url,
+            decode_responses=True,
+            socket_timeout=30,
+            socket_connect_timeout=5,
+            health_check_interval=30,
+            retry_on_timeout=True,
+        )
     return _redis_client
 
 
 def enqueue_pipeline(user_id: int, import_id: int) -> None:
     payload = json.dumps({"user_id": user_id, "import_id": import_id})
-    _client().lpush(QUEUE_KEY, payload)
+    try:
+        _client().lpush(QUEUE_KEY, payload)
+    except Exception as exc:
+        logger.error("enqueue failed user=%s import=%s: %s", user_id, import_id, exc)
+        raise
 
 
 def active_count_for_user(user_id: int) -> int:
-    """How many jobs for this user are currently being processed."""
     with _active_lock:
         return _active_per_user.get(user_id, 0)
 
@@ -54,18 +63,12 @@ def start_workers(handler: Callable[[int, int], None], count: int | None = None)
     _stop_event.clear()
     n = count or max(1, int(os.getenv("PIPELINE_CONCURRENCY", "2")))
     for i in range(n):
-        t = threading.Thread(
-            target=_worker_loop,
-            args=(handler, i),
-            daemon=True,
-            name=f"pipeline-worker-{i}",
-        )
+        t = threading.Thread(target=_worker_loop, args=(handler, i), daemon=True, name=f"pipeline-worker-{i}")
         t.start()
         _workers.append(t)
 
 
 def stop_workers(timeout: float = 5.0) -> None:
-    """Signal worker threads to exit and wait briefly for them to drain."""
     _stop_event.set()
     for t in _workers:
         t.join(timeout=timeout)
@@ -76,9 +79,6 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
     client = _client()
     while not _stop_event.is_set():
         try:
-            # BRPOP blocks up to 15s then returns None; the loop keeps the
-            # worker responsive while idle without busy-spinning, and the
-            # short timeout lets stop_workers() shut it down promptly.
             item = client.brpop(QUEUE_KEY, timeout=15)
         except Exception as exc:
             logger.warning("worker-%s brpop failed: %s; retrying", worker_id, exc)
@@ -92,10 +92,6 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
             payload = json.loads(item[1])
             user_id = int(payload["user_id"])
             import_id = int(payload["import_id"])
-            # Per-user fairness: if this user already has a job running, put
-            # this one back at the head of the queue and let other users'
-            # jobs go first. This stops one user flooding the queue from
-            # monopolizing every worker while others wait.
             with _active_lock:
                 running = _active_per_user.get(user_id, 0)
             if running >= _max_per_user:
@@ -108,9 +104,6 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
             handler(user_id, import_id)
             logger.info("worker-%s done user=%s import=%s", worker_id, user_id, import_id)
         except Exception as exc:
-            # A single bad job must never kill the worker thread, but it must
-            # also never vanish silently: log full context so failures are
-            # debuggable instead of stranding an import in "generating".
             logger.exception("worker-%s job failed user=%s import=%s: %s", worker_id, user_id, import_id, exc)
             if user_id is not None and import_id is not None:
                 try:

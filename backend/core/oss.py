@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from ._base import log
-from .images import download_bytes, ensure_jpeg_bytes, guess_mime_bytes, image_suffix_for_mime
+from core.base import log
+from core.images import download_bytes, ensure_jpeg_bytes, guess_mime_bytes, image_suffix_for_mime
 
 
 def upload_image_bytes_to_oss(

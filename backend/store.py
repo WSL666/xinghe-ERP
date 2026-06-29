@@ -118,6 +118,27 @@ def _json(value: Any, fallback: Any) -> Any:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return fallback
+def _column_exists(conn: psycopg.Connection, table: str, column: str) -> bool:
+    """Probe a column without aborting the transaction.
+
+    The legacy probe (SELECT col ... LIMIT 1 + catching UndefinedColumn then
+    rollback) aborts the whole init_db transaction. On a fresh database the
+    rollback also undoes every CREATE TABLE issued earlier in the same
+    transaction, so the following ALTER TABLE dies with 'relation does not
+    exist'. Reading information_schema never errors out, so migrations are
+    safe on both fresh and pre-existing databases.
+    """
+    return conn.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = %s
+          AND column_name = %s
+        """,
+        (table, column),
+    ).fetchone() is not None
+
+
 def init_db() -> None:
     with db_conn() as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
@@ -133,7 +154,9 @@ def init_db() -> None:
                 is_verified BOOLEAN NOT NULL DEFAULT TRUE,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                enterprise_id BIGINT,
+                role TEXT NOT NULL DEFAULT 'member'
             )
             """
         )
@@ -176,7 +199,8 @@ def init_db() -> None:
                 status TEXT NOT NULL DEFAULT 'pending',
                 status_msg TEXT NOT NULL DEFAULT '',
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                platform TEXT NOT NULL DEFAULT 'temu'
             )
             """
         )
@@ -186,10 +210,7 @@ def init_db() -> None:
             ("api_key_hash", "TEXT NOT NULL DEFAULT ''"),
             ("api_key_preview", "TEXT NOT NULL DEFAULT ''"),
         ]:
-            try:
-                conn.execute(f"SELECT {col} FROM users LIMIT 1")
-            except psycopg.errors.UndefinedColumn:
-                conn.rollback()
+            if not _column_exists(conn, "users", col):
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
         for col, col_def in [
             ("spec_json", "JSONB NOT NULL DEFAULT '{}'::jsonb"),
@@ -198,10 +219,7 @@ def init_db() -> None:
             ("finished_at", "TIMESTAMPTZ"),
             ("platform", "TEXT NOT NULL DEFAULT 'temu'"),
         ]:
-            try:
-                conn.execute(f"SELECT {col} FROM imports LIMIT 1")
-            except psycopg.errors.UndefinedColumn:
-                conn.rollback()
+            if not _column_exists(conn, "imports", col):
                 conn.execute(f"ALTER TABLE imports ADD COLUMN {col} {col_def}")
 
         # Enterprises + membership. Multi-tenant layer: an owner onboards a
@@ -241,10 +259,7 @@ def init_db() -> None:
             ("enterprise_id", "BIGINT"),
             ("role", "TEXT NOT NULL DEFAULT 'member'"),
         ]:
-            try:
-                conn.execute(f"SELECT {col} FROM users LIMIT 1")
-            except psycopg.errors.UndefinedColumn:
-                conn.rollback()
+            if not _column_exists(conn, "users", col):
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
 
 

@@ -42,6 +42,14 @@ class Settings:
     pool_max_size: int
     pool_timeout: float
     pool_max_idle: int
+    sms_provider: str
+    sms_code_ttl_seconds: int
+    sms_resend_cooldown_seconds: int
+    sms_daily_limit: int
+    sms_access_key_id: str
+    sms_access_key_secret: str
+    sms_sign_name: str
+    sms_template_code: str
 
     @property
     def cookie_secure(self) -> bool:
@@ -69,4 +77,12 @@ def get_settings() -> Settings:
         pool_max_size=_int_env("POOL_MAX_SIZE", 20),
         pool_timeout=float(os.getenv("POOL_TIMEOUT", "30") or 30),
         pool_max_idle=_int_env("POOL_MAX_IDLE", 300),
+        sms_provider=os.getenv("SMS_PROVIDER", "console").strip().lower(),
+        sms_code_ttl_seconds=_int_env("SMS_CODE_TTL_SECONDS", 300),
+        sms_resend_cooldown_seconds=_int_env("SMS_RESEND_COOLDOWN_SECONDS", 60),
+        sms_daily_limit=_int_env("SMS_DAILY_LIMIT", 10),
+        sms_access_key_id=os.getenv("SMS_ACCESS_KEY_ID", ""),
+        sms_access_key_secret=os.getenv("SMS_ACCESS_KEY_SECRET", ""),
+        sms_sign_name=os.getenv("SMS_SIGN_NAME", ""),
+        sms_template_code=os.getenv("SMS_TEMPLATE_CODE", ""),
     )

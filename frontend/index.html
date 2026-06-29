@@ -3,16 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>新数字时代的基础设施</title>
+  <title>星禾电商内容生成平台 · 首页</title>
+  <link rel="icon" href="/frontend/images/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/frontend/images/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/frontend/images/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/frontend/images/apple-touch-icon.png">
   <link rel="stylesheet" href="/frontend/styles.css">
 </head>
 <body>
   <main class="page-shell">
     <nav class="top-navbar animate-in nav-layer" aria-label="主导航">
       <a class="logo-link" href="#" aria-label="首页">
-        <svg class="logo" viewBox="0 0 256 256" fill="#192837" aria-hidden="true">
-          <path d="M 64 128 L 64.5 128 L 32 95 L 0 64 L 0 0 L 64 0 L 128 64 L 128 64.5 L 161 32 L 192 0 L 256 0 L 256 64 L 192 128 L 128 128 L 128 192 L 96 223 L 63.5 256 L 0 256 L 0 192 Z M 256 192 L 224 223 L 191.5 256 L 128 256 L 128 192 L 192 128 L 256 128 Z"></path>
-        </svg>
+        <img class="logo" src="/frontend/images/image.png" alt="星禾">
       </a>
 
       <div class="desktop-links" aria-label="桌面导航">
@@ -38,8 +40,8 @@
       </div>
 
       <div class="content-wrapper animate-in text-layer">
-        <h1>构建新数字时代的<br>基础设施</h1>
-        <p>为企业、开发者与社区设计产品、驱动生态，并铺设去中心化网络的长期基础。</p>
+        <h1>星禾</h1>
+        <p>AI 驱动的电商内容生成平台 —— 商品图、营销视频、数字人、私人定制，一键生成。</p>
       </div>
     </section>
 
@@ -64,6 +66,10 @@
        </label>
        <label class="required-field">
          <input type="password" name="confirmPassword" placeholder="确认密码" required>
+       </label>
+       <label class="required-field verify-field">
+         <input type="text" name="smsCode" placeholder="短信验证码" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+         <button class="code-button" type="button" data-send-sms>获取验证码</button>
        </label>
         <label>
           <input type="text" name="inviteCode" placeholder="企业邀请码（选填）">

@@ -10,20 +10,20 @@ volumes:
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: m.daocloud.io/docker.io/pgvector/pgvector:pg16
     container_name: product-pipeline-postgres
     hostname: product-pipeline-postgres
     restart: unless-stopped
     networks:
       - product-pipeline-network
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     environment:
       TZ: Asia/Shanghai
       PGDATA: /var/lib/postgresql/data/pgdata
       POSTGRES_DB: product_pipeline
       POSTGRES_USER: product_pipeline_user
-      POSTGRES_PASSWORD: product_pipeline_dev_password
+      POSTGRES_PASSWORD: db_d791b2a581e437ba8e839d52
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8"
     volumes:
       - product-pipeline-postgres-data:/var/lib/postgresql/data
@@ -46,14 +46,14 @@ services:
       start_period: 20s
 
   redis:
-    image: redis:7.4-alpine
+    image: m.daocloud.io/docker.io/library/redis:7.4-alpine
     container_name: product-pipeline-redis
     hostname: product-pipeline-redis
     restart: unless-stopped
     networks:
       - product-pipeline-network
     ports:
-      - "6380:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - product-pipeline-redis-data:/data
     command:
@@ -65,6 +65,10 @@ services:
       - "1000"
       - "--maxmemory-policy"
       - "noeviction"
+      - "--timeout"
+      - "120"
+      - "--tcp-keepalive"
+      - "60"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s

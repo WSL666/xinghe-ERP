@@ -6,8 +6,8 @@ from typing import Any
 import httpx
 from openai import APITimeoutError, OpenAI
 
-from ._base import IMAGE_ATTEMPT_TIMEOUT, IMAGE_DOWNLOAD_TIMEOUT, MAX_IMAGE_ATTEMPTS, VIBE_OUTPUT_FORMAT, VIBE_RESPONSE_FORMAT, log
-from .images import guess_mime_bytes
+from core.base import IMAGE_ATTEMPT_TIMEOUT, IMAGE_DOWNLOAD_TIMEOUT, MAX_IMAGE_ATTEMPTS, VIBE_OUTPUT_FORMAT, VIBE_RESPONSE_FORMAT, log
+from core.images import guess_mime_bytes
 from .oss import upload_new_image_to_oss
 
 
@@ -70,6 +70,7 @@ def generate_one_image(
     for attempt in range(1, max_attempts + 1):
         log(f"{task_name}: attempt {attempt}/{max_attempts}")
         client = create_vibe_client(api_key, base_url)
+        attempt_started = time.perf_counter()
         try:
             response = client.images.edit(
                 image=edit_image,
@@ -79,7 +80,7 @@ def generate_one_image(
                 n=1,
                 output_format=VIBE_OUTPUT_FORMAT,
                 response_format=VIBE_RESPONSE_FORMAT,
-                timeout=attempt_timeout,
+                timeout=httpx.Timeout(attempt_timeout, connect=30.0),
             )
         except Exception as exc:
             last_error = str(exc)
@@ -87,6 +88,13 @@ def generate_one_image(
                 log(f"[WARN] {task_name}: timeout, retrying...")
                 continue
             raise
+        elapsed_attempt = time.perf_counter() - attempt_started
+        if elapsed_attempt > attempt_timeout:
+            last_error = f"single request exceeded {attempt_timeout:.0f}s (took {elapsed_attempt:.0f}s)"
+            log(f"[WARN] {task_name}: {last_error}, retrying...")
+            if attempt < max_attempts:
+                continue
+            raise RuntimeError(f"{task_name}: {last_error}")
 
         data = response.data or []
         if not data:
@@ -102,9 +110,6 @@ def generate_one_image(
         log(f"[OK] {task_name}: uploaded OSS ({elapsed:.2f}s, {attempt} attempt(s))")
         return oss_result["url"], oss_result, elapsed, attempt
 
-    raise RuntimeError(
-        f"{task_name} failed after {max_attempts} attempts: {last_error}"
-    )
     raise RuntimeError(
         f"{task_name} failed after {max_attempts} attempts: {last_error}"
     )

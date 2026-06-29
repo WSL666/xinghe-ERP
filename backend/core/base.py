@@ -2,44 +2,40 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import importlib.util
 import json
-import mimetypes
 import re
-import sys
 import threading
 import time
 import urllib.error
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
 import httpx
 from openai import APITimeoutError, OpenAI
 
+from config import BACKEND_ROOT, ENV_PATH
 
-# pipeline is a package under backend/; reuse path constants from config so
-# the root is computed in exactly one place (avoids duplicate __file__ math).
-from config import APP_ROOT, BACKEND_ROOT, ENV_PATH
-
+# 根目录(backend_new)
 PIPELINE_ROOT = BACKEND_ROOT
-OUTPUT_DIR = BACKEND_ROOT / "output"
-PROMPTS_DIR = BACKEND_ROOT / "prompts"
-TEMP_DIR = BACKEND_ROOT / "temp"
+ENV_PATH = ENV_PATH
 
-# image-generation API constants
+# 图片生成 API 常量
 VIBE_OUTPUT_FORMAT = "png"
 VIBE_RESPONSE_FORMAT = "b64_json"
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
 MAX_PARALLEL = 10
 IMAGE_DOWNLOAD_CONCURRENCY = 8
-IMAGE_ATTEMPT_TIMEOUT = 150.0
-MAX_IMAGE_ATTEMPTS = 3
+IMAGE_ATTEMPT_TIMEOUT = 300.0
+MAX_IMAGE_ATTEMPTS = 2
 IMAGE_DOWNLOAD_TIMEOUT = 60.0
 VISION_TIMEOUT = 300.0
 VISION_MAX_ATTEMPTS = 3
+
+# 单条 import 流水线总时长兜底：超过即强制判失败，防止任何步骤卡死导致僵尸任务
+PIPELINE_TOTAL_TIMEOUT = 900.0
 
 _print_lock = threading.Lock()
 
@@ -52,7 +48,7 @@ def log(message: str) -> None:
 
 
 class PipelineStepError(RuntimeError):
-    """Step exception carrying structured detail for the upper layer to write to DB logs."""
+    """携带结构化 detail 的步骤异常,供上层写入 DB 日志。"""
 
     def __init__(self, message: str, detail: dict[str, Any] | None = None):
         super().__init__(message)
@@ -94,24 +90,9 @@ def parse_json_response(text: str) -> Any:
         return json.loads(text[start : end + 1])
 
 
-def load_prompt_module(prompt_file: str) -> str:
-    path = PROMPTS_DIR / prompt_file
-    if not path.exists():
-        raise FileNotFoundError(f"prompt file not found: {path}")
-    spec = importlib.util.spec_from_file_location(prompt_file.rstrip(".py"), path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load module: {path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    prompt = getattr(module, "PROMPT", None)
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError(f"define a non-empty PROMPT string in {path}")
-    return prompt.strip()
-
-
 def call_text_llm(env: dict[str, str], prompt_str: str, max_tokens: int = 4096,
                   base_url: str = None, api_key: str = None, model: str = None) -> str:
-    """Call a text-only OpenAI-compatible LLM (e.g. DeepSeek) via the SDK."""
+    """调用文本 OpenAI 兼容 LLM(如 DeepSeek)。"""
     _api_key = api_key or require_env(env, "step2_api_key")
     _base_url = (base_url or require_env(env, "step2_base_url")).rstrip("/")
     if _base_url.endswith("/chat/completions"):

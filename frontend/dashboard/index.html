@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>商品管线工作台</title>
+  <title>星禾电商内容生成平台 · 工作台</title>
+  <link rel="icon" href="/frontend/images/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/frontend/images/favicon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/frontend/images/favicon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/frontend/images/apple-touch-icon.png">
   <link rel="stylesheet" href="/dashboard/assets/css/styles.css?v=20260626-mid">
 </head>
 <body>
@@ -46,11 +50,6 @@
         <button class="nav-item" data-view="settings">设置</button>
      </nav>
 
-     <div class="side-card">
-        <span>当前服务</span>
-       <strong id="sideApiBase">-</strong>
-        <button class="ghost-btn small" data-action="test-api">测试连接</button>
-     </div>
     </aside>
 
     <section class="workspace">
@@ -129,28 +128,15 @@
       </section>
 
       <section id="productsPanel" class="view-panel">
-        <div class="toolbar-card">
-          <div class="search-box">
-           <input id="searchInput" type="search" placeholder="Search title, ID, goods ID, or English title">
-            <input id="searchInput" type="search" placeholder="搜索标题、ID、goods ID 或英文标题">
-         </div>
-         <select id="statusFilter">
-            <option value="all">全部状态</option>
-            <option value="done">已完成</option>
-            <option value="generating">生成中</option>
-            <option value="pending">待处理</option>
-            <option value="error">错误</option>
-         </select>
-          <button class="ghost-btn" data-action="refresh">刷新</button>
-          <button class="primary-btn" data-action="open-upload">上传 XLSX</button>
-         <input id="xlsxInput" type="file" accept=".xlsx" hidden>
-        </div>
-
         <section class="card">
           <div class="card-head">
-            <div>
-                <p class="eyebrow" id="productPanelEyebrow">已采集商品</p>
-                <h3 id="productPanelTitle">商品记录</h3>
+             <div class="batch-wrap" id="batchWrap">
+               <button class="ghost-btn" id="batchBtn" type="button">批量处理 ▾</button>
+               <div class="batch-menu" id="batchMenu" hidden>
+                 <button type="button" data-batch="select-all">全选 / 取消全选</button>
+                 <button type="button" data-batch="export" id="batchExportBtn">批量导出 (ZIP)</button>
+                 <button type="button" data-batch="delete" id="batchDeleteBtn" class="danger">批量删除</button>
+               </div>
              </div>
            </div>
           <div class="table-wrap">
@@ -223,58 +209,25 @@
           <div class="card-head">
             <div>
               <p class="eyebrow">设置</p>
-              <h3>系统设置</h3>
-           </div>
-         </div>
-         <form id="settingsForm" class="settings-form">
-           <label>
-              API 服务地址
-             <input id="settingsApiBase" type="url">
-           </label>
-           <label>
-              插件 API 密钥
-              <input id="pluginApiKey" type="text" readonly placeholder="登录或重置 API 密钥">
-           </label>
-            <button class="ghost-btn" type="button" data-action="reset-api-key">重置 API 密钥</button>
-           <label>
-              默认账号
-             <input type="text" value="admin" disabled>
-           </label>
-           <label>
-              默认密码
-             <input type="text" value="123456" disabled>
-           </label>
-            <button class="primary-btn" type="submit">保存设置</button>
-         </form>
-
-          <div class="plugin-merged">
-            <div class="card-head standalone">
-              <div>
-                <p class="eyebrow">浏览器扩展</p>
-                <h3>插件连接</h3>
-              </div>
+              <h3>插件连接</h3>
             </div>
-            <p class="hint">在浏览器插件设置中使用以下服务地址和 API 密钥。</p>
+          </div>
+          <form id="settingsForm" class="settings-form">
             <label>
               插件服务地址
               <div class="copy-row">
                 <input id="pluginUrl" readonly>
-                <button class="ghost-btn" data-action="copy-plugin-url">复制</button>
+                <button class="ghost-btn" type="button" data-action="copy-plugin-url">复制</button>
               </div>
             </label>
             <label>
-              Manifest 权限示例
-              <textarea id="manifestExample" readonly rows="5"></textarea>
+              插件 API 密钥
+              <div class="copy-row">
+                <input id="pluginApiKey" type="text" readonly placeholder="登录或重置 API 密钥">
+                <button class="ghost-btn" type="button" data-action="reset-api-key">重置</button>
+              </div>
             </label>
-            <ul class="check-list">
-              <li>开发期间 FastAPI 监听 0.0.0.0:6688。</li>
-              <li>其他电脑应使用局域网 IP 而非 localhost。</li>
-              <li>在 Windows 防火墙放行 Python 进程或 6688 端口。</li>
-              <li>修改服务地址后重新加载 Chrome 插件。</li>
-            </ul>
-          </div>
-
-          <p class="hint">当前开发版采用个人账号隔离，团队权限可后续扩展。</p>
+          </form>
         </section>
       </section>
 

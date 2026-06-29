@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from ._base import IMAGE_DOWNLOAD_CONCURRENCY, PipelineStepError, log
+from core.base import IMAGE_DOWNLOAD_CONCURRENCY, PipelineStepError, log
 
 
 def download_bytes(url: str) -> tuple[bytes, str]:

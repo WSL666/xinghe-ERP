@@ -160,20 +160,12 @@ function showApp() {
 
 
 function syncApiText() {
-  $("#sideApiBase").textContent = state.apiBase;
-  $("#settingsApiBase").value = state.apiBase;
-  $("#pluginUrl").value = state.apiBase;
-
+  const urlEl = $("#pluginUrl");
+  if (urlEl) urlEl.value = state.apiBase;
   const apiKeyInput = $("#pluginApiKey");
   if (apiKeyInput) {
     apiKeyInput.value = state.user?.api_key || state.user?.api_key_preview || "";
   }
-
-  $("#manifestExample").value = JSON.stringify([
-    "*://*.temu.com/*",
-    "http://localhost:6688/*",
-    `${state.apiBase}/*`
-  ], null, 2);
 }
 
 function setApiStatus(status, text) {
@@ -187,6 +179,7 @@ function statusInfo(item) {
   if (status === "done") return { cls: "ok", text: "已完成" };
   if (status === "generating") return { cls: "running", text: "生成中" };
   if (status === "translating") return { cls: "running", text: "翻译中" };
+  if (status === "queued") return { cls: "queued", text: "排队中" };
   if (status === "error") return { cls: "error", text: "错误" };
   return { cls: "pending", text: "待处理" };
 }
@@ -328,18 +321,7 @@ function hasVision(item) {
 }
 
 function filteredImports() {
-  const term = state.search.trim().toLowerCase();
-  return state.imports.filter((item) => {
-    const statusMatch = state.status === "all" || (item.status || "pending") === state.status;
-    const haystack = [
-      item.id,
-      item.goods_id,
-      item.title,
-      item.cn_title,
-      item.en_title
-    ].join(" ").toLowerCase();
-    return statusMatch && (!term || haystack.includes(term));
-  });
+  return state.imports;
 }
 
 function renderStats() {
@@ -363,7 +345,7 @@ function renderRecent() {
         <span class="badge ${status.cls}">${status.text}</span>
       </article>
     `;
-  }).join("") : `<div class="empty-state">暂无商品。请从插件发送或上传 XLSX。</div>`;
+  }).join("") : `<div class="empty-state">暂无商品。请通过浏览器插件采集并发送商品数据。</div>`;
 }
 
 function formatTimeRange(item) {
@@ -486,6 +468,7 @@ function renderAll() {
   renderStats();
   renderRecent();
   renderProducts();
+  if (typeof updateBatchState === "function") updateBatchState();
 }
 
 function setView(name) {
@@ -496,12 +479,6 @@ function setView(name) {
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === state.view));
   $("#pageTitle").textContent = views[state.view].title;
   $("#pageEyebrow").textContent = views[state.view].eyebrow;
-  if (panelName === "products") {
-    const t = $("#productPanelTitle");
-    const e = $("#productPanelEyebrow");
-    if (t) t.textContent = views[state.view].title;
-    if (e) e.textContent = views[state.view].eyebrow;
-  }
   const prevPlatform = state.platform;
   state.platform = PLATFORM_BY_VIEW[state.view] || null;
   if (panelName === "products" && prevPlatform !== state.platform) {
@@ -512,7 +489,7 @@ function setView(name) {
 
 async function refreshData({ silent = false } = {}) {
   try {
-    const url = state.platform ? `/api/imports?platform=${encodeURIComponent(state.platform)}` : "/api/imports";
+    const url = state.platform ? `/api/temu/imports?platform=${encodeURIComponent(state.platform)}` : "/api/temu/imports";
     const data = await apiFetch(url);
     state.imports = Array.isArray(data.imports) ? data.imports : [];
     setApiStatus("ok", "服务在线");
@@ -593,15 +570,6 @@ async function resetApiKey() {
   toast("API 密钥已重置并复制。");
 }
 
-async function uploadXlsx(file) {
-  if (!file) return;
-  const formData = new FormData();
-  formData.append("file", file);
-  await apiFetch("/api/step1/upload", { method: "POST", body: formData });
-  toast("XLSX 已上传，后台任务已排队。");
-  await refreshData({ silent: true });
-}
-
 async function runStep(id, step) {
   const labels = {
     step2: "翻译",
@@ -609,13 +577,14 @@ async function runStep(id, step) {
     step4: "生成",
     generate: "整体生成"
   };
-  await apiFetch(`/api/imports/${id}/${step}`, { method: "POST" });
+  await apiFetch(`/api/temu/imports/${id}/${step}`, { method: "POST" });
   toast(`${labels[step] || step} 已开始。`);
   await refreshData({ silent: true });
 }
 
 async function exportItem(id) {
-  const response = await fetch(apiUrl(`/api/imports/${id}/export`), {
+  if (!confirm(`确认导出商品 #${id} 吗？`)) return;
+  const response = await fetch(apiUrl(`/api/temu/imports/${id}/export`), {
     method: "POST",
     credentials: "include"
   });
@@ -663,9 +632,79 @@ async function exportItem(id) {
 
 async function deleteItem(id) {
   if (!confirm(`确认删除导入 #${id} 吗？`)) return;
-  await apiFetch(`/api/imports/${id}`, { method: "DELETE" });
+  await apiFetch(`/api/temu/imports/${id}`, { method: "DELETE" });
   toast("已删除该导入。");
   await refreshData({ silent: true });
+}
+
+function selectedIds() {
+  return Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => Number(cb.value));
+}
+
+function updateBatchState() {
+  const has = selectedIds().length > 0;
+  $("#batchExportBtn").disabled = !has;
+  $("#batchDeleteBtn").disabled = !has;
+}
+
+function toggleBatchMenu(open) {
+  const menu = $("#batchMenu");
+  const willOpen = open ?? menu.hidden;
+  menu.hidden = !willOpen;
+}
+
+async function batchExport() {
+  const ids = selectedIds();
+  if (!ids.length) { toast("请先勾选商品。", "warn"); return; }
+  if (!confirm(`确认导出选中的 ${ids.length} 个商品吗？`)) return;
+  toggleBatchMenu(false);
+  toast(`正在导出 ${ids.length} 个商品...`);
+  try {
+    const response = await fetch(apiUrl("/api/temu/imports/bulk/export"), {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || `导出失败: ${response.status}`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : (ids.length === 1 ? `final_result_${ids[0]}.xlsx` : "exports.zip");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast(`已导出 ${ids.length} 个商品。`);
+  } catch (error) {
+    toast(error.message || "批量导出失败。", "error");
+  }
+}
+
+async function batchDelete() {
+  const ids = selectedIds();
+  if (!ids.length) { toast("请先勾选商品。", "warn"); return; }
+  toggleBatchMenu(false);
+  if (!confirm(`确认批量删除选中的 ${ids.length} 个商品吗？此操作不可恢复。`)) return;
+  try {
+    const data = await apiFetch("/api/temu/imports/bulk/delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+    const msg = `已删除 ${data.deleted} 个` + (data.missing?.length ? `，未找到 ${data.missing.length} 个` : "");
+    toast(msg);
+    $("#selectAll").checked = false;
+    await refreshData({ silent: true });
+  } catch (error) {
+    toast(error.message || "批量删除失败。", "error");
+  }
 }
 
 function openDetail(id) {
@@ -824,34 +863,12 @@ async function copyText(value) {
 
 function bindEvents() {
 
-  $("#settingsForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    state.apiBase = normalizeApiBase($("#settingsApiBase").value);
-    localStorage.setItem(STORAGE_KEYS.apiBase, state.apiBase);
-    syncApiText();
-    toast("设置已保存。");
-    refreshData({ silent: true });
-  });
+  const settingsForm = $("#settingsForm");
+  if (settingsForm) {
+    settingsForm.addEventListener("submit", (event) => event.preventDefault());
+  }
 
-  $("#searchInput").addEventListener("input", (event) => {
-    state.search = event.target.value;
-    renderProducts();
-  });
 
-  $("#statusFilter").addEventListener("change", (event) => {
-    state.status = event.target.value;
-    renderProducts();
-  });
-
-  $("#xlsxInput").addEventListener("change", async (event) => {
-    try {
-      await uploadXlsx(event.target.files[0]);
-    } catch (error) {
-      toast(error.message, "error");
-    } finally {
-      event.target.value = "";
-    }
-  });
 
   document.body.addEventListener("click", async (event) => {
     const viewButton = event.target.closest("[data-view]");
@@ -868,7 +885,6 @@ function bindEvents() {
 
     try {
       if (action === "refresh") await refreshData();
-      if (action === "test-api") await refreshData();
       if (action === "logout") {
         try {
           await apiFetch("/api/auth/logout", { method: "POST" });
@@ -876,7 +892,6 @@ function bindEvents() {
         clearSession();
         window.location.replace("/");
       }
-      if (action === "open-upload") $("#xlsxInput").click();
       if (action === "play-video") openVideo(actionButton.dataset.src, actionButton.dataset.poster);
       if (action === "close-video") closeVideo();
       if (action === "preview") {
@@ -947,6 +962,38 @@ function bindEvents() {
   $("#selectAll").addEventListener("change", (event) => {
     const checked = event.target.checked;
     document.querySelectorAll(".row-check").forEach((cb) => (cb.checked = checked));
+    updateBatchState();
+  });
+
+  $("#productRows").addEventListener("change", (event) => {
+    if (event.target.classList.contains("row-check")) updateBatchState();
+  });
+
+  $("#batchBtn").addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleBatchMenu();
+  });
+
+  $("#batchMenu").addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-batch]");
+    if (!btn) return;
+    const action = btn.dataset.batch;
+    if (action === "select-all") {
+      const checks = document.querySelectorAll(".row-check");
+      const all = Array.from(checks).every((cb) => cb.checked);
+      $("#selectAll").checked = !all;
+      checks.forEach((cb) => (cb.checked = !all));
+      updateBatchState();
+    } else if (action === "export") {
+      batchExport();
+    } else if (action === "delete") {
+      batchDelete();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const wrap = $("#batchWrap");
+    if (wrap && !wrap.contains(event.target)) toggleBatchMenu(false);
   });
 
   document.addEventListener("keydown", (event) => {

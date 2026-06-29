@@ -59,6 +59,7 @@ function getActivePanel() {
 }
 
 function showAuthMessage(message, panel = getActivePanel()) {
+  console.log("[auth]", message);
   if (!panel) return;
   const messageBox = panel.querySelector(".auth-message");
   messageBox.textContent = message;
@@ -115,6 +116,64 @@ async function authRequest(path, payload) {
   return data;
 }
 
+// ── SMS verification code for register ────────────────────────────
+const SMS_COOLDOWN_SECONDS = 60;
+
+function startSmsCountdown(button, seconds) {
+  let remaining = seconds;
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.dataset.originalText = originalText;
+  button.textContent = `${remaining}s 后重发`;
+  const timer = window.setInterval(() => {
+    remaining -= 1;
+    if (remaining <= 0) {
+      window.clearInterval(timer);
+      button.disabled = false;
+      button.textContent = button.dataset.originalText || "获取验证码";
+      delete button.dataset.timer;
+    } else {
+      button.textContent = `${remaining}s 后重发`;
+    }
+  }, 1000);
+  button.dataset.timer = timer;
+}
+
+async function sendSmsCode(account, button, panel) {
+  if (!account) {
+    showAuthMessage("请先输入手机号或邮箱", panel);
+    return false;
+  }
+  button.disabled = true;
+  const prevText = button.textContent;
+  button.textContent = "发送中…";
+  try {
+    const data = await authRequest("/api/auth/sms/send", { account });
+    startSmsCountdown(button, SMS_COOLDOWN_SECONDS);
+    if (data && data.dev_code) {
+      showAuthMessage(`验证码：${data.dev_code}（开发模式）`, panel);
+    } else {
+      showAuthMessage("验证码已发送，请注意查收", panel);
+    }
+    return true;
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = prevText;
+    showAuthMessage(error.message, panel);
+    return false;
+  }
+}
+
+// Bind the "获取验证码" button inside whichever panel is active.
+document.querySelectorAll("[data-send-sms]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const panel = button.closest(".auth-modal");
+    const accountField = panel && panel.querySelector('[name="account"]');
+    if (!accountField) return;
+    sendSmsCode(accountField.value.trim(), button, panel);
+  });
+});
+
 document.querySelectorAll("[data-auth-form]").forEach((form) => {
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -164,8 +223,13 @@ document.querySelectorAll("[data-auth-form]").forEach((form) => {
      return;
    }
     const invite_code = (form.elements.inviteCode?.value || "").trim();
+    const sms_code = (form.elements.smsCode?.value || "").trim();
+   if (!sms_code) {
+     showAuthMessage("请先获取并输入验证码", panel);
+     return;
+   }
    try {
-      await authRequest("/api/auth/register", { account, password, display_name: account, invite_code });
+      await authRequest("/api/auth/register", { account, password, display_name: account, invite_code, sms_code });
       window.location.href = "/dashboard";
     } catch (error) {
       showAuthMessage(error.message, panel);

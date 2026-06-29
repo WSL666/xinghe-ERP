@@ -54,8 +54,8 @@ button {
 }
 
 .logo {
-  width: 32px;
-  height: 32px;
+  width: 88px;
+  height: 88px;
 }
 
 .desktop-links,
@@ -495,6 +495,20 @@ button {
   background: #f1edff;
   font-size: 20px;
   cursor: pointer;
+}
+
+.code-button:disabled {
+  color: #9a9a9a;
+  background: #f4f4f4;
+  cursor: not-allowed;
+}
+
+.code-button:disabled:hover {
+  transform: none;
+}
+
+.code-button:hover:not(:disabled) {
+  background: #e7deff;
 }
 
 .captcha-code {
