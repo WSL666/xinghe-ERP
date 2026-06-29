@@ -8,6 +8,15 @@ import httpx
 from openai import APITimeoutError, OpenAI
 
 from core.base import PipelineStepError, VISION_MAX_ATTEMPTS, VISION_TIMEOUT, log, parse_json_response, require_env
+from api_key_pool import get_pool
+
+
+class ApiKeyError(RuntimeError):
+    """携带 HTTP 状态码的 API 调用异常,供 key 池判断是否该换 key。"""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 def build_vision_messages(prompt: str, image_b64_list: list[str]) -> list[dict[str, Any]]:
@@ -22,10 +31,14 @@ def build_vision_messages(prompt: str, image_b64_list: list[str]) -> list[dict[s
 
 
 def analyze_product(env: dict[str, str], prompt: str,
-                    image_b64_list: list[str]) -> dict[str, Any]:
-    """Call the Vision model to analyze all images in one shot -> output JSON."""
+                    image_b64_list: list[str],
+                    api_key: str | None = None) -> dict[str, Any]:
+    """Call the Vision model to analyze all images in one shot -> output JSON.
+
+    api_key 由调用方传入(key 池轮换);为 None 时回退到 .env 的 CHAT_API_KEY。
+    """
     import traceback as _tb
-    chat_api_key = require_env(env, "CHAT_API_KEY")
+    chat_api_key = api_key or require_env(env, "CHAT_API_KEY")
     chat_base_url = require_env(env, "OPENAI_CHAT_BASE_URL")
     chat_model = env.get("CHAT_MODEL", "gpt-5.5")
 
@@ -64,7 +77,9 @@ def analyze_product(env: dict[str, str], prompt: str,
     except Exception as exc:
         log(f"Vision API call exception: {exc}")
         log(f"Traceback: {_tb.format_exc()}")
-        raise RuntimeError(f"Vision API call failed: {exc}") from exc
+        code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+        err = ApiKeyError(f"Vision API call failed: {exc}", code)
+        raise err from exc
 
     content = "".join(content_parts).strip()
     if not content:
@@ -126,21 +141,29 @@ def analyze_product_with_retry(
     image_count: int,
     max_attempts: int = VISION_MAX_ATTEMPTS,
 ) -> dict[str, Any]:
-    """Vision analysis with retry; validates JSON schema each attempt."""
+    """Vision analysis with retry + key 池轮换。
+
+    每次重试从 key 池取一个可用 key(池空回退 .env 的 CHAT_API_KEY)。
+    401/403 → key 进失效板块,换下一个;其他错误 → 正常重试。
+    """
+    pool = get_pool("chat")
     attempts: list[dict[str, Any]] = []
     last_error = ""
 
     for attempt in range(1, max_attempts + 1):
         started = time.perf_counter()
+        # 每次尝试从 key 池取一个 key(池空则用 .env 兜底)
+        api_key = pool.acquire() or env.get("CHAT_API_KEY", "").strip() or None
         attempt_info: dict[str, Any] = {
             "attempt": attempt,
             "ok": False,
             "elapsed": 0,
             "error": "",
             "payload_preview": "",
+            "key": f"...{api_key[-6:]}" if api_key else "none",
         }
         try:
-            payload = analyze_product(env, vision_prompt, valid_b64)
+            payload = analyze_product(env, vision_prompt, valid_b64, api_key=api_key)
             attempt_info["payload_preview"] = json.dumps(payload, ensure_ascii=False)[:1000]
             selected_indexes, prompt_items = validate_analysis_payload(payload, image_count)
             attempt_info.update({
@@ -150,6 +173,9 @@ def analyze_product_with_retry(
                 "prompt_count": len(prompt_items),
             })
             attempts.append(attempt_info)
+            # 成功:重置该 key 的失败计数
+            if api_key:
+                pool.mark_success(api_key)
             return {
                 "payload": payload,
                 "selected_indexes": selected_indexes,
@@ -164,6 +190,10 @@ def analyze_product_with_retry(
             })
             attempts.append(attempt_info)
             log(f"[WARN] Vision attempt {attempt}/{max_attempts} failed: {exc}")
+            # key 池反馈:判断是否该把这个 key 移出可用
+            code = getattr(exc, "status_code", None)
+            if api_key and api_key != env.get("CHAT_API_KEY", "").strip():
+                pool.mark_failed(api_key, code, error=last_error)
             if attempt < max_attempts:
                 time.sleep(min(2 * attempt, 6))
 

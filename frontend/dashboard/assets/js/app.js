@@ -328,7 +328,8 @@ function renderStats() {
   $("#statTotal").textContent = state.imports.length;
   $("#statDone").textContent = state.imports.filter((item) => item.status === "done").length;
   $("#statImages").textContent = state.imports.reduce((sum, item) => sum + generatedOk(item).length, 0);
-  $("#statRunning").textContent = state.imports.filter((item) => item.status !== "done").length;
+  $("#statRunning").textContent = state.imports.filter((item) => item.status !== "done" && item.status !== "error").length;
+  $("#statFailed").textContent = state.imports.filter((item) => item.status === "error").length;
 }
 
 function renderRecent() {

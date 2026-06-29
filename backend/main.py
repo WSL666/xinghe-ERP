@@ -12,6 +12,8 @@
 """
 from __future__ import annotations
 
+import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
@@ -61,8 +63,11 @@ def _startup() -> None:
     except Exception:
         import logging
         logging.getLogger("startup").exception("re-enqueue failed (redis down?)")
-    # 启动 worker,handler 为 orchestrator.worker_handler(按平台分发)
-    pipeline_queue.start_workers(worker_handler)
+    # worker 已拆到独立进程(worker.py),web 默认不内嵌 worker。
+    # 测试/兼容旧用法:设 PIPELINE_EMBED_WORKERS=1 时仍在 web 内起 worker。
+    if os.getenv("PIPELINE_EMBED_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        pipeline_queue.start_workers(worker_handler)
+        logging.getLogger("startup").info("embedded workers enabled (PIPELINE_EMBED_WORKERS=1)")
 
 
 @asynccontextmanager
@@ -72,7 +77,8 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         close_pool()
-        pipeline_queue.stop_workers()
+        if os.getenv("PIPELINE_EMBED_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
+            pipeline_queue.stop_workers()
 
 
 app = FastAPI(title="Product Pipeline Digital App", version="0.2.0", lifespan=lifespan)
@@ -105,6 +111,10 @@ app.include_router(common_router)
 # 各平台路由(新增平台在此加一行)
 from platforms.temu.router import router as temu_router  # noqa: E402
 app.include_router(temu_router)
+
+# API Key 池内网管理面板(/admin/keys,仅本机 + token)
+from api_key_pool import router as admin_keys_router  # noqa: E402
+app.include_router(admin_keys_router)
 
 
 @app.exception_handler(HTTPException)

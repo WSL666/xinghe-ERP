@@ -540,6 +540,7 @@ def _record_step_atomic(
     error: str | None = None,
     started_at: str | None = None,
     finished_at: str | None = None,
+    label: str | None = None,
 ) -> None:
     current = {
         "status": status,
@@ -548,6 +549,7 @@ def _record_step_atomic(
         "input": input_data or {},
         "output": output_data or {},
         "error": error or "",
+        "label": label or step,
     }
     # Read-modify-write in a single transaction with a row lock. The auto
     # pipeline runs step2 and step3 in parallel threads that both record into
@@ -568,6 +570,7 @@ def _record_step_atomic(
         history = previous.get("history", []) if isinstance(previous.get("history", []), list) else []
         history.append(dict(current))
         current["history"] = history[-20:]
+        current["history_count"] = len(history)
         logs[step] = current
         conn.execute(
             "UPDATE imports SET step_logs = %s, updated_at = now() WHERE user_id = %s AND id = %s",
@@ -585,12 +588,14 @@ def record_step(
     error: str | None = None,
     started_at: str | None = None,
     finished_at: str | None = None,
+    label: str | None = None,
 ) -> None:
     """Append a step record to step_logs atomically (delegates to _record_step_atomic)."""
     _record_step_atomic(
         user_id, import_id, step, status,
         input_data=input_data, output_data=output_data,
         error=error, started_at=started_at, finished_at=finished_at,
+        label=label,
     )
 def delete_import(user_id: int, import_id: int) -> bool:
     with db_conn() as conn:

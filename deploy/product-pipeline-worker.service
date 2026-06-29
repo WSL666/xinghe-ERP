@@ -1,0 +1,25 @@
+[Unit]
+Description=Product Pipeline Worker (standalone queue consumer)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/workspace/wsl-workplace/backend
+Environment="PATH=/root/miniconda3/envs/wsl-test/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# 每个 worker 进程的线程数(并发任务数)。按服务器内存调:
+#   4C/7G 测试机建议 6~8;升到 16G 后可到 12~16
+Environment="PIPELINE_CONCURRENCY=8"
+# 每用户最多同时跑几个任务(防止单人占满所有 worker)
+Environment="PIPELINE_MAX_PER_USER=4"
+ExecStart=/root/miniconda3/envs/wsl-test/bin/python worker.py
+Restart=always
+RestartSec=5
+# 优雅停机:先 SIGTERM 让任务正常收尾,超时再 SIGKILL
+TimeoutStopSec=300
+StandardOutput=append:/var/log/product-pipeline-worker.log
+StandardError=append:/var/log/product-pipeline-worker.log
+
+[Install]
+WantedBy=multi-user.target

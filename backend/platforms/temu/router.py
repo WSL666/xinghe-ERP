@@ -84,6 +84,18 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
     skus = payload.get("skus")
     if not product_data or not skus:
         raise _err("missing product or skus", 400)
+
+    # 入库前用 attr_db 补全产品属性(pid/vid/templatePid)
+    # 这段逻辑以前在插件端,现在挪到后端(attr_db.json 不再打包进插件)
+    enriched_props, hit, total = enrich_product_props(product_data)
+    if enriched_props:
+        product_data = {**product_data, "productProps": enriched_props}
+        payload = {**payload, "product": product_data}
+        if total:
+            import logging
+            logging.getLogger("temu.import").info(
+                "attr_enrich: %d/%d props matched (import)", hit, total)
+
     payload = {**payload, "platform": "temu"}
     import_id = insert_import(int(user["id"]), payload)
     run_auto_pipeline(int(user["id"]), import_id)

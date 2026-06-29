@@ -655,64 +655,22 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
   const specLevelNames = (specTree || []).map(l => l.specKey);
   const galleryStr = galleryImgs.join('\n');
   const firstImg = galleryImgs[0] || '';
-  // ===== 产品属性模板ID待填充（需登录seller后台后通过API获取） =====
-  // ===== 从本地属性数据库补全 pid/vid/templatePid =====
-  let enrichedProps = collectedData.goodsProperty || [];
-  try {
-    const dbUrl = chrome.runtime.getURL('attr_db.json');
-    const dbResp = await fetch(dbUrl);
-    if (dbResp.ok) {
-      const attrDB = await dbResp.json();
-      const propsDB = attrDB.props || {};
-      const valuesDB = attrDB.values || {};
-      let hitCount = 0;
-      // 过滤不需要的属性
-      const excludeProps = ['商品编号', '产地'];
-      const filteredProps = (collectedData.goodsProperty || []).filter(p => !excludeProps.includes(p.propName));
-      enrichedProps = filteredProps.map(p => {
-        const pn = (p.propName || '').trim();
-        const pv = (p.propValue || '').trim();
-        const match = propsDB[pn];
-        if (!match) return p; // 数据库中没有该属性，保持原样
-        hitCount++;
-        // 从数据库取值，不额外补0
-        const pid = match.pid || p.pid || '';
-        const tpid = match.templatePid || p.templatePid || '';
-        // 辅助函数：从DB值中提取vid（兼容新旧格式）
-        const getVid = (dbVal) => {
-          if (!dbVal) return '';
-          if (typeof dbVal === 'string') return dbVal;
-          return dbVal.vid || '';
-        };
-        // 用数据库中的vid填入
-        let vid = p.vid || '';
-        if (!vid && pv && pid) {
-          const vkey = pid + '|' + pv;
-          const vMatch = valuesDB[vkey];
-          if (vMatch) vid = getVid(vMatch);
-          else {
-            const parts = pv.split('、');
-            for (const part of parts) {
-              const pk = pid + '|' + part.trim();
-              const vm = valuesDB[pk];
-              if (vm) { vid = getVid(vm); break; }
-            }
-          }
-        }
-        return {
-          propName: p.propName, refPid: p.refPid || '', pid: pid, templatePid: tpid,
-          numberInputValue: p.numberInputValue || '', valueUnit: p.valueUnit || '',
-          vid: vid, propValue: p.propValue
-        };
-      });
-      console.log('🔍 属性数据库匹配: ' + hitCount + '/' + enrichedProps.length + ' 条命中');
-    } else {
-      console.warn('属性数据库加载失败:', dbResp.status);
-    }
-  } catch (e) {
-    console.warn('属性数据库读取异常:', e.message);
-  }
-  const propsJson = JSON.stringify(enrichedProps, ['propName','refPid','pid','templatePid','numberInputValue','valueUnit','vid','propValue']);
+  // ===== 产品属性: 只发原始 propName/propValue, pid/vid/templatePid 由后端 attr_db 补全 =====
+  // (attr_db.json 已挪到后端 backend/platforms/temu/, 不再打包在插件里, 保护数据库)
+  const excludeProps = ['商品编号', '产地'];
+  const enrichedProps = (collectedData.goodsProperty || [])
+    .filter(p => !excludeProps.includes((p.propName || p.key || '').trim()))
+    .map(p => ({
+      propName: p.propName || '',
+      refPid: p.refPid || '',
+      pid: p.pid || '',
+      templatePid: p.templatePid || '',
+      numberInputValue: p.numberInputValue || '',
+      valueUnit: p.valueUnit || '',
+      vid: p.vid || '',
+      propValue: p.propValue || '',
+    }));
+  const propsJson = JSON.stringify(enrichedProps);
   const videoStr = videos.map(v => v.url).join('\n');
 
   // 59列表头（与模板完全一致）

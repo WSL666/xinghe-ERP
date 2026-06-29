@@ -50,6 +50,7 @@ class Settings:
     sms_access_key_secret: str
     sms_sign_name: str
     sms_template_code: str
+    admin_token: str
 
     @property
     def cookie_secure(self) -> bool:
@@ -85,4 +86,5 @@ def get_settings() -> Settings:
         sms_access_key_secret=os.getenv("SMS_ACCESS_KEY_SECRET", ""),
         sms_sign_name=os.getenv("SMS_SIGN_NAME", ""),
         sms_template_code=os.getenv("SMS_TEMPLATE_CODE", ""),
+        admin_token=os.getenv("ADMIN_TOKEN", ""),
     )

@@ -3,8 +3,8 @@
 这是 Temu 的"业务大脑",决定:
   先做什么 → 后做什么 → 调哪些 core 工具 → 用哪个 prompt
 
-流程: 源图/视频上传OSS → (翻译 ‖ 视觉)并行 → 生图 → 收尾
-      (翻译和视觉并行执行以省时间,生图依赖视觉结果)
+流程: 统一下载源图 → (step1上传OSS ‖ step2翻译 ‖ step3视觉)三路并行 → 生图 → 收尾
+      (step1/2/3 三路并行,翻译结果不再被OSS上传阻塞,生图依赖视觉结果)
 
 新增 1688 时,写自己的 pipeline.py:
   - 可复用 core 的工具(翻译/视觉/生图)
@@ -21,6 +21,7 @@ from core.images import collect_product_images
 from core.image_gen import generate_one_image, build_edit_image
 from core.oss import (
     upload_new_image_to_oss,
+    upload_source_image_bytes_to_oss,
     upload_source_image_urls_to_oss,
     upload_source_videos_to_oss,
 )
@@ -63,11 +64,16 @@ def _step2_translate(env: dict[str, str], product: Product) -> tuple[str, str]:
     return cn, en
 
 
-def _step3_vision(env: dict[str, str], product: Product) -> dict[str, Any]:
-    """视觉解析:下载图片 → 调视觉模型 → 选参考图 + 生成提示词。"""
+def _step3_vision(env: dict[str, str], product: Product,
+                    image_context: dict[str, Any] | None = None) -> dict[str, Any]:
+    """视觉解析:下载图片 → 调视觉模型 → 选参考图 + 生成提示词。
+
+    image_context 不为空时直接复用(已下载的字节),省掉重复下载。
+    """
     log("=" * 50)
     log(">>> TEMU STEP3: 视觉解析")
-    image_context = collect_product_images([to_pipeline_input(product)])
+    if image_context is None:
+        image_context = collect_product_images([to_pipeline_input(product)])
     product_text = product.chinese_title
     prompt = vision_prompt.build_prompt(product_text)
 
@@ -199,8 +205,8 @@ def execute(
 
     流程:
       1. 从 DB 读 raw_import → adapter 转成 Product
-      2. 源图/视频上传 OSS
-      3. 翻译 ‖ 视觉 并行
+      2. 统一下载源图(只下一次,供 step1/step3 复用)
+      3. (step1上传OSS ‖ step2翻译 ‖ step3视觉)三路并行
       4. 视觉完成后生图
       5. 写回 DB,更新状态
     """
@@ -219,51 +225,96 @@ def execute(
     def _timed_out() -> bool:
         return time.monotonic() >= deadline
 
-    # 1. 源图上传 OSS
+    # ── 统一下载一次: 采集到的 Temu 原图(后续 OSS 上传/视觉解析共用) ──
+    # 旧版 step1 和 step3 各下载一次,白费一次网络往返。现在只下一次。
+    store.update_status(user_id, import_id, "generating", "downloading source images")
     try:
-        store.update_status(user_id, import_id, "generating", "uploading source images")
         if _timed_out():
-            raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s before source image upload")
-        if not product.old_image_urls:
-            old_urls = upload_source_image_urls_to_oss(env, product.carousel_images)
-            product.old_image_urls = old_urls
-            raw_import.setdefault("product", {})["oldImageUrls"] = old_urls
-            store.update_raw_import(user_id, import_id, raw_import)
+            raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s before download")
+        image_context = collect_product_images([to_pipeline_input(product)])
     except Exception as exc:
-        store.update_status(user_id, import_id, "error", f"source image upload failed: {exc}")
+        store.update_status(user_id, import_id, "error", f"image download failed: {exc}")
+        store.update_finished_at(user_id, import_id)
         return
 
-    # 源视频上传(失败不阻断)
-    try:
-        if product.videos:
-            store.update_status(user_id, import_id, "generating", "uploading source videos")
-            uploaded = upload_source_videos_to_oss(env, product.videos)
-            store.update_videos(user_id, import_id, uploaded)
-    except Exception as exc:
-        store.update_status(user_id, import_id, "generating", f"video upload skipped: {exc}")
-
-    # 2. 翻译 ‖ 视觉 并行
-    store.update_status(user_id, import_id, "generating", "translation and vision running")
+    # ── 三路并行: step1(源图上传OSS) ‖ step2(翻译) ‖ step3(视觉) ──
+    # 关键优化: 翻译和视觉不再被 step1(上传OSS ~100秒)挡着,三路同时启动。
+    # 翻译本身只需 ~1 秒,改完前端能比旧版提前约 100 秒看到翻译结果。
+    # 视觉复用上面已下载的字节(不重复下载),省 ~5-6 秒。
+    store.update_status(user_id, import_id, "generating", "translation, vision and source upload running")
     results: dict[str, Any] = {}
 
-    def _w2():
+    def _w1():
+        """step1: 把已下载的图片字节传 OSS(存档用)。失败不阻断主流程。"""
         try:
+            if not product.old_image_urls:
+                old_urls = upload_source_image_bytes_to_oss(env, image_context["image_bytes_list"])
+                product.old_image_urls = old_urls
+                raw_import.setdefault("product", {})["oldImageUrls"] = old_urls
+                store.update_raw_import(user_id, import_id, raw_import)
+        except Exception as exc:
+            results["step1_error"] = str(exc)
+
+    def _w1v():
+        """源视频上传(失败不阻断)。"""
+        try:
+            if product.videos:
+                uploaded = upload_source_videos_to_oss(env, product.videos)
+                store.update_videos(user_id, import_id, uploaded)
+        except Exception as exc:
+            results["step1v_error"] = str(exc)
+
+    def _w2():
+        import datetime as _dt
+        step_key, label = "step2_translate", "标题翻译"
+        started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            store.record_step(user_id, import_id, step_key, "running",
+                              input_data={"title": product.chinese_title},
+                              started_at=started, finished_at=started, label=label)
             cn, en = _step2_translate(env, product)
             results["step2"] = {"ok": True, "cn": cn, "en": en}
+            store.update_step2(user_id, import_id, cn, en)
+            store.record_step(user_id, import_id, step_key, "success",
+                              output_data={"cn_title": cn, "en_title": en},
+                              started_at=started, label=label)
         except Exception as exc:
             results["step2"] = {"ok": False, "error": str(exc)}
+            store.update_step2(user_id, import_id, product.chinese_title, "")
+            store.record_step(user_id, import_id, step_key, "failed",
+                              error=str(exc), started_at=started, label=label)
 
     def _w3():
+        import datetime as _dt
+        step_key, label = "step3_vision", "视觉解析"
+        started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            vision = _step3_vision(env, product)
+            store.record_step(user_id, import_id, step_key, "running",
+                              input_data={"carousel_count": len(product.carousel_images)},
+                              started_at=started, finished_at=started, label=label)
+            # 复用已下载的 image_context,不再重复下载
+            vision = _step3_vision(env, product, image_context=image_context)
             results["step3"] = {"ok": True, "vision": vision}
+            vision_for_db = {k: v for k, v in vision.items() if k != "_image_cache"}
+            store.update_step3_vision(user_id, import_id, vision_for_db, done=True)
+            store.record_step(user_id, import_id, step_key, "success",
+                              output_data={"selected_indexes": vision.get("selected_indexes", []),
+                                           "prompt_count": len(vision.get("prompt_items", [])),
+                                           "attempts": len(vision.get("attempts", []))},
+                              started_at=started, label=label)
         except Exception as exc:
             results["step3"] = {"ok": False, "error": str(exc)}
+            store.update_step3_vision(user_id, import_id, {"error": str(exc)}, done=False)
+            store.record_step(user_id, import_id, step_key, "failed",
+                              error=str(exc), started_at=started, label=label)
 
+    t1 = threading.Thread(target=_w1, daemon=True)
+    t1v = threading.Thread(target=_w1v, daemon=True)
     t2 = threading.Thread(target=_w2, daemon=True)
     t3 = threading.Thread(target=_w3, daemon=True)
-    t2.start()
-    t3.start()
+    t1.start(); t1v.start(); t2.start(); t3.start()
+    t1.join(timeout=_time_left())
+    t1v.join(timeout=_time_left())
     t2.join(timeout=_time_left())
     t3.join(timeout=_time_left())
     if t2.is_alive() or t3.is_alive():
@@ -271,36 +322,42 @@ def execute(
         store.update_finished_at(user_id, import_id)
         return
 
-    # 写回翻译结果
     s2 = results.get("step2", {})
-    if s2.get("ok"):
-        store.update_step2(user_id, import_id, s2["cn"], s2["en"])
-    else:
-        store.update_step2(user_id, import_id, product.chinese_title, "")
+    s3 = results.get("step3", {})
 
     # 3. 生图(依赖视觉)
     generated: list[dict[str, Any]] = []
     step4_ok = False
-    s3 = results.get("step3", {})
     if s3.get("ok"):
         vision = s3["vision"]
-        # 持久化视觉结果(去掉字节缓存)
-        vision_for_db = {k: v for k, v in vision.items() if k != "_image_cache"}
-        store.update_step3_vision(user_id, import_id, vision_for_db, done=True)
         store.update_status(user_id, import_id, "generating", "vision done, image generation running")
+        import datetime as _dt
+        step_key, label = "step4_generation", "图片生成"
+        started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        store.record_step(user_id, import_id, step_key, "running",
+                          input_data={"image_count": len(vision.get("prompt_items", []))},
+                          started_at=started, finished_at=started, label=label)
         try:
             if _timed_out():
                 raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s deadline before image generation")
             generated = _step4_generate(env, product, vision)
             step4_ok = True
             store.update_step4(user_id, import_id, generated, done=True)
+            ok_count = sum(1 for g in generated if g.get("generated_image"))
+            fail_count = sum(1 for g in generated if g.get("error"))
+            store.record_step(user_id, import_id, step_key, "success",
+                              output_data={"generated": ok_count, "failed": fail_count,
+                                           "images": [{"image_type": g.get("image_type"),
+                                                       "ok": bool(g.get("generated_image"))}
+                                                      for g in generated]},
+                              started_at=started, label=label)
         except Exception as exc:
             store.update_step4(user_id, import_id, [], done=False)
             store.update_status(user_id, import_id, "error", f"image generation failed: {exc}")
+            store.record_step(user_id, import_id, step_key, "failed",
+                              error=str(exc), started_at=started, label=label)
             store.update_finished_at(user_id, import_id)
             return
-    else:
-        store.update_step3_vision(user_id, import_id, {"error": s3.get("error", "")}, done=False)
 
     # 4. 收尾
     ok_count = sum(1 for g in generated if g.get("generated_image"))

@@ -11,26 +11,61 @@
 - **AI**：DeepSeek（标题翻译）、自建兼容 OpenAI 的 Chat/Vision 端点（视觉解析）、VibeLearning（图生图）
 - **反代/证书**：Caddy（自动 ACME，DNS-01 via alidns）
 - **前端**：纯静态 HTML/CSS/JS，由 FastAPI 的 `StaticFiles` 直接托管
-- **进程管理**：systemd（`product-pipeline.service`，`Restart=always`）
+- **进程管理**：systemd（`product-pipeline.service` web + `product-pipeline-worker.service` worker，均 `Restart=always`）
 - **采集端**：Chrome 扩展（`collector/temu-collector/`，Manifest V3，v2.0）
 
 ## 运行拓扑（生产实际架构）
 
 ```
-浏览器/插件 ──HTTPS:8443──▶ Caddy ──HTTP──▶ Uvicorn(127.0.0.1:6688) ──▶ PostgreSQL(:5433)
-                                                │
-                                                ├─▶ Redis（仅 Unix socket，无 TCP 端口）
-                                                └─▶ pipeline worker 线程（从 Redis 队列取任务）
+浏览器/插件 ──HTTPS:8443──▶ Caddy ──HTTP──▶ Uvicorn web(127.0.0.1:6688) ──▶ PostgreSQL(:5433)
+                                                   │
+                                                   └──写入──▶ Redis 队列(仅 Unix socket) ◀──BRPOP──┐
+                                                                                                    │
+                                     worker.py 独立进程(N 个线程) ─────────────────────────────────┘
 ```
 
 - **域名**：`https://wangshilin888.com:8443`（Caddy 反代到 `127.0.0.1:6688`）
 - **应用监听**：`127.0.0.1:6688`，HTTP（TLS 由 Caddy 终止，**uvicorn 不要加 `--ssl-*`**）
 - **数据库**：PostgreSQL `127.0.0.1:5433`（容器内 5432）
 - **Redis：只走 Unix socket，不监听任何 TCP 端口**（详见下方「Redis Unix socket 设计」）
+- **进程拆分（web 与 worker 分离）**：
+  - **web 进程**：`product-pipeline.service`（uvicorn 单进程，只接 HTTP / 入队，`--workers` 不需要再设）
+  - **worker 进程**：`product-pipeline-worker.service`（`python worker.py`，只消费 Redis 队列跑流水线）
+  - 两者通过 Redis 队列解耦：web 重启不杀在跑的任务；想加并发只调 worker，不动 web；未来 worker 可单独搬到别的机器
 - **并发模型**：
-  - uvicorn `--workers 2` → 2 个进程，每进程 `PIPELINE_CONCURRENCY=2` 个 worker 线程，共 4 个 worker 线程同时 `BRPOP` 同一个 Redis 队列
-  - 每用户最多 `PIPELINE_MAX_PER_USER=2` 个并发任务（同一用户超额任务回队尾等待）
+  - worker 进程内启动 `PIPELINE_CONCURRENCY` 个线程（默认 8）同时 `BRPOP` 同一个 Redis 队列
+  - 每用户最多 `PIPELINE_MAX_PER_USER` 个并发任务（同一用户超额任务回队尾等待）
   - 并发计数存 Redis（原子 INCR/DECR + TTL），多进程共享、崩溃不泄漏
+  - 兼容旧用法：web 设 `PIPELINE_EMBED_WORKERS=1` 时仍在 web 内起 worker（仅测试用，生产不开）
+
+### 并发调参（PIPELINE_CONCURRENCY / PIPELINE_MAX_PER_USER）
+
+两个环境变量控制并发，**改完要重启 worker 才生效**：
+
+| 变量 | 作用 | 在哪设 | 默认 |
+|------|------|--------|------|
+| `PIPELINE_CONCURRENCY` | worker 进程内线程数（全局并发上限） | worker service 的 `Environment=` 行 | 8 |
+| `PIPELINE_MAX_PER_USER` | 单用户最多同时跑几个任务 | worker service 的 `Environment=` 行 或 `backend/.env` | 4 |
+
+```bash
+# 例: 想让全局跑 10 个任务、每人最多 2 个
+# 编辑 /etc/systemd/system/product-pipeline-worker.service
+#   Environment="PIPELINE_CONCURRENCY=10"
+#   Environment="PIPELINE_MAX_PER_USER=2"
+systemctl daemon-reload
+systemctl restart product-pipeline-worker.service
+tail -3 /var/log/product-pipeline-worker.log   # 确认打印的并发数已变
+```
+
+**参考值**（4C/7G 无 swap 测试机）：
+
+| 并发(CONCURRENCY) | 每用户上限 | 内存占用 | 说明 |
+|-------------------|-----------|----------|------|
+| 4 | 2 | ~200MB | 保守，稳定 |
+| 8 | 4 | ~400MB | 推荐，安全 |
+| 12 | 4 | ~600MB | 偏紧，要盯内存 |
+| 16+ | — | 800MB+ | 不建议，无 swap 容易 OOM |
+
 
 > 端口：生产对外是 **8443（HTTPS，Caddy）**，应用本体是 **6688（HTTP，内网）**，PostgreSQL 绑 `127.0.0.1:5433`，Redis 无 TCP 端口。
 
@@ -61,28 +96,44 @@ redis-cli -s /var/run/product-pipeline/redis.sock info clients | grep connected_
 
 ```bash
 # 在仓库根目录 /root/workspace/wsl-workplace
-docker compose up -d && sleep 5 && systemctl start product-pipeline.service
+docker compose up -d && sleep 5
+systemctl start product-pipeline.service          # web(HTTP)
+systemctl start product-pipeline-worker.service   # worker(消费队列跑流水线)
 
 # 验证
-curl http://127.0.0.1:6688/api/health      # 应返回 {"ok":true,"status":"healthy"}
+curl http://127.0.0.1:6688/api/health             # 应返回 {"ok":true,"status":"healthy"}
+systemctl status product-pipeline-worker.service  # worker 应 active(running)
 ```
 
-systemd service（`/etc/systemd/system/product-pipeline.service`，模板见 `deploy/product-pipeline.service`）托管 uvicorn，`Restart=always` 崩溃 5 秒自动重启，`ExecStartPre` 自动创建 Redis socket 目录，日志追加到 `/var/log/product-pipeline.log`。
+两个 systemd service（模板在 `deploy/`，需 `cp` 到 `/etc/systemd/system/` 后 `systemctl daemon-reload`）：
+- `product-pipeline.service` → 托管 uvicorn web，`Restart=always`，`ExecStartPre` 自动创建 Redis socket 目录，日志追加到 `/var/log/product-pipeline.log`
+- `product-pipeline-worker.service` → 托管 `python worker.py`，`Restart=always`，`TimeoutStopSec=300`（给任务 5 分钟优雅收尾），日志追加到 `/var/log/product-pipeline-worker.log`
 
 ### 一键停止
 
 ```bash
-systemctl stop product-pipeline.service                          # 停后端
+systemctl stop product-pipeline-worker.service                   # 先停 worker(优雅收尾任务)
+systemctl stop product-pipeline.service                          # 再停 web
 docker stop product-pipeline-redis product-pipeline-postgres     # 停 Redis + Postgres
 ```
 
 ### 重启后端（改了代码或 .env 后）
 
+> **web 和 worker 是两个独立进程**。改了代码或 `.env` 后，**两个都要重启**，
+> 否则没重启的那个还会跑旧代码（常见坑：改了 pipeline 逻辑只重启 web，worker 仍跑老代码）。
+
 ```bash
-systemctl restart product-pipeline.service
-# 重启会触发崩溃恢复:把 DB 里 queued/generating 的任务自动重新入队
-# Redis socket 目录由 ExecStartPre 自动维护,无需手动创建
+systemctl restart product-pipeline.service          # web(改 API/路由时重启)
+systemctl restart product-pipeline-worker.service   # worker(改 pipeline/队列逻辑时必须重启)
+
+# 查看重启是否成功
+systemctl status product-pipeline.service
+systemctl status product-pipeline-worker.service
+tail -5 /var/log/product-pipeline-worker.log        # 看到 "worker started" = 正常
 ```
+
+- 重启 worker 会触发崩溃恢复：把 DB 里 `queued`/`generating` 的任务自动重新入队
+- Redis socket 目录由 web service 的 `ExecStartPre` 自动维护，无需手动创建
 
 ### 首次部署（一次性）
 
@@ -95,13 +146,35 @@ cd backend
 cp .env.example .env          # 编辑,填入 AI/OSS/数据库密钥
 pip install -r requirements.txt
 
-# 3. 安装 systemd service
+# 3. 安装 systemd service(两个:web + worker)
 cp /root/workspace/wsl-workplace/deploy/product-pipeline.service /etc/systemd/system/
+cp /root/workspace/wsl-workplace/deploy/product-pipeline-worker.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable product-pipeline.service
+systemctl enable product-pipeline.service product-pipeline-worker.service
 
-# 4. 启动
-systemctl start product-pipeline.service
+# 4. 启动(两个都要)
+systemctl start product-pipeline.service          # web
+systemctl start product-pipeline-worker.service   # worker
+
+# 5. 验证两个进程都在跑
+systemctl status product-pipeline.service
+systemctl status product-pipeline-worker.service
+curl http://127.0.0.1:6688/api/health             # {"ok":true,"status":"healthy"}
+```
+
+### 手动启动（开发/调试，不走 systemd）
+
+```bash
+conda activate wsl-test
+cd backend
+
+# 方式A: 两个进程都手动开(开两个终端)
+uvicorn main:app --host 127.0.0.1 --port 6688     # 终端1: web
+PIPELINE_CONCURRENCY=4 python worker.py           # 终端2: worker
+
+# 方式B: web 内嵌 worker(旧模式,简单测试用)
+PIPELINE_EMBED_WORKERS=1 uvicorn main:app --host 127.0.0.1 --port 6688
+# 此时只起一个进程,web 里同时跑 worker 线程(改代码无需单独重启 worker)
 ```
 
 > 镜像源：`docker-compose.yml` 的镜像名带 `m.daocloud.io` 加速前缀（`pgvector/pgvector:pg16`、`redis:7.4-alpine`）。
@@ -185,6 +258,7 @@ backend/
 ├── config.py            # 读取 .env → Settings dataclass
 ├── store.py             # PostgreSQL 数据访问层(连接池 + 全部表操作 + init_db)
 ├── orchestrator.py      # 流水线编排:run_auto_pipeline 入队 + worker_handler 分发
+├── worker.py            # 独立 worker 进程入口(只消费 Redis 队列跑流水线,不跑 HTTP)
 ├── pipeline_queue.py    # Redis 队列 + worker 线程池(BRPOP、Redis 原子并发计数、崩溃恢复)
 ├── core/                # 平台无关的核心工具
 │   ├── base.py          #   常量(超时/并发)、env 加载、LLM 调用、日志
@@ -205,6 +279,10 @@ backend/
 ├── security.py          # 密码哈希、session token、API Key
 ├── sms.py               # 短信验证码(console / 阿里云)
 ├── oss_client.py        # OSS 客户端封装
+├── api_key_pool/        # API Key 池(Redis 三态轮换 + 内网管理面板),见 api_key_pool/README.md
+│   ├── pool.py         #   key 池核心(可用/冷却/失效, LRU 轮换, Redis 共享)
+│   ├── admin.py        #   内网管理面板(左右布局 + 双表格, /admin/keys)
+│   └── run.py          #   面板独立测试启动器(端口 7799, 内存隔离)
 └── requirements.txt
 frontend/                # 静态前端(dashboard 工作台),由 FastAPI StaticFiles 托管
 collector/temu-collector/ # Chrome 采集插件(v2.0)
@@ -248,9 +326,13 @@ docker compose ps
 # 应用是否在监听
 ss -tlnp | grep 6688
 
-# 后端 service 状态 / 日志
+# web service 状态 / 日志
 systemctl status product-pipeline.service
 tail -f /var/log/product-pipeline.log
+
+# worker service 状态 / 日志(任务在跑/排队看这里)
+systemctl status product-pipeline-worker.service
+tail -f /var/log/product-pipeline-worker.log
 
 # Caddy 状态 / 日志
 systemctl status caddy
@@ -290,7 +372,12 @@ docker exec product-pipeline-postgres psql -U product_pipeline_user -d product_p
 
 ### Redis 重启丢队列
 
-Redis 队列是内存态，重启后清空，但 DB 里状态仍是 `queued`。**恢复**：`systemctl restart product-pipeline.service`，启动时自动把 `queued`/`generating` 的任务重新入队。
+Redis 队列是内存态，重启后清空，但 DB 里状态仍是 `queued`。**恢复**：重启 web 和 worker，两者启动时都会自动把 `queued`/`generating` 的任务重新入队：
+
+```bash
+systemctl restart product-pipeline.service
+systemctl restart product-pipeline-worker.service
+```
 
 ### AI API 卡死导致僵尸任务（已有兜底）
 
