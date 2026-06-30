@@ -7,7 +7,7 @@
   GET  /imports/{id}  详情
   DELETE /imports/{id} 删除
   POST /bulk/delete   批量删除
-  POST /bulk/export   批量导出(zip)
+  POST /bulk/export   批量导出(单xlsx,多链接连续)
   POST /imports/{id}/export  单个导出
   POST /imports/{id}/generate 手动重跑流水线
 
@@ -31,7 +31,7 @@ from store import (
 )
 
 from platforms.temu.adapter import from_db_row, parse_product
-from platforms.temu.export import to_xlsx as temu_export_xlsx
+from platforms.temu.export import to_xlsx as temu_export_xlsx, to_xlsx_batch as temu_export_xlsx_batch
 
 from orchestrator import run_auto_pipeline
 
@@ -194,15 +194,13 @@ async def temu_bulk_delete(payload: dict[str, Any],
 @router.post("/imports/bulk/export")
 async def temu_bulk_export(payload: dict[str, Any],
                            user: dict[str, Any] = Depends(_current_user)) -> StreamingResponse:
-    import io
-    import zipfile
-
+    """批量导出:所有链接的 SKU 行连续写入同一个 xlsx(不压缩,不插空行)。"""
     ids = [int(i) for i in payload.get("ids", []) if str(i).strip().lstrip("-").isdigit()]
     if not ids:
         raise _err("no ids provided", 400)
     uid = int(user["id"])
 
-    def _build_one(import_id: int) -> bytes | None:
+    def _build_item(import_id: int) -> dict | None:
         raw_import = get_raw_import(uid, import_id)
         if not raw_import:
             return None
@@ -211,30 +209,22 @@ async def temu_bulk_export(payload: dict[str, Any],
         en = row.get("en_title", "")
         gj = row.get("generated_json", [])
         generated = gj if isinstance(gj, list) else []
-        return temu_export_xlsx(raw_import, cn, en, generated)
+        return {"raw_import": raw_import, "cn_title": cn, "en_title": en, "generated": generated}
 
-    if len(ids) == 1:
-        import_id = ids[0]
-        data = _build_one(import_id)
-        if data is None:
-            raise _err(f"import {import_id} not found", 404)
-        filename = f"final_result_{uid}_{import_id}.xlsx"
-        return StreamingResponse(
-            iter([data]),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
+    items = []
+    for import_id in ids:
+        it = _build_item(import_id)
+        if it:
+            items.append(it)
+    if not items:
+        raise _err("no valid imports found", 404)
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for import_id in ids:
-            data = _build_one(import_id)
-            if data:
-                zf.writestr(f"final_result_{uid}_{import_id}.xlsx", data)
-    buf.seek(0)
+    data = temu_export_xlsx_batch(items)
+    filename = f"bulk_export_{uid}.xlsx"
     return StreamingResponse(
-        buf, media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="exports.zip"'},
+        iter([data]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
