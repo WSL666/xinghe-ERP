@@ -29,6 +29,10 @@ def init_billing_tables() -> None:
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_bean_tx_user ON bean_transactions(user_id, created_at DESC)"
         )
+        # 老库兼容: 补 import_id 列(CREATE TABLE IF NOT EXISTS 不会给已存在的表加列)
+        conn.execute(
+            "ALTER TABLE bean_transactions ADD COLUMN IF NOT EXISTS import_id BIGINT"
+        )
 
 
 def get_beans(user_id: int) -> int:

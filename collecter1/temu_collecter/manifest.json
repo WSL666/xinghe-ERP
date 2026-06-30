@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Temu商品采集助手",
+  "version": "1.9",
+  "description": "一键采集Temu商品全部图片、标题、价格，基于页面原始数据确保完整性和准确性",
+  "permissions": ["activeTab", "scripting", "clipboardWrite", "storage"],
+  "host_permissions": ["*://*.temu.com/*", "http://localhost:6688/*", "http://192.168.0.104:6688/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Temu商品采集助手"
+  },
+  "icons": {
+    "16": "icon16.png.png"
+  }
+}
