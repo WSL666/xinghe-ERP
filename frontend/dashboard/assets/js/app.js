@@ -251,31 +251,16 @@ function renderImageRows(originals, generated, item) {
   const originalList = normalizeImageItems(originals).map((it) => ({ ...it, kind: "orig" }));
   const generatedList = normalizeImageItems(generated, "generated").map((it) => ({ ...it, kind: "ai" }));
 
-  // 生成中: 已完成的图 + 骨架占位(让用户看到进度)
+  // 生成中: 只显示已完成的图(逐张弹出), 不显示转圈占位
   const isGenerating = item && (item.status === "generating" || item.status === "queued");
-  if (isGenerating) {
-    // 期望生成的图片数(通常 6~8,取 image_count 或默认 6)
-    const expected = item.image_count || 6;
-    const doneCount = generatedList.length;
-    const pendingCount = Math.max(0, expected - doneCount);
-    // 构造骨架占位 tile
-    const skeletons = Array.from({ length: pendingCount }, (_, i) => ({
-      kind: "ai-skeleton",
-      title: "生成中",
-    }));
-    const aiList = [...generatedList, ...skeletons];
-    return `
-      <div class="image-row-stack">
-        ${renderImageRow(originalList, "orig", "源")}
-        ${renderImageRowWithSkeleton(aiList, doneCount, pendingCount)}
-      </div>
-    `;
-  }
+  const aiRow = isGenerating && generatedList.length === 0
+    ? `<div class="image-strip img-strip-row empty-strip"><span class="empty-thumb">生成中</span></div>`
+    : renderImageRow(generatedList, "ai", "AI");
 
   return `
     <div class="image-row-stack">
       ${renderImageRow(originalList, "orig", "源")}
-      ${renderImageRow(generatedList, "ai", "AI")}
+      ${aiRow}
     </div>
   `;
 }
@@ -305,27 +290,6 @@ function renderImageRow(list, kind, label) {
     ? `<span class="image-tile tile-more" title="共 ${list.length} 张${label}图"><span>+${overflow}</span></span>`
     : "";
   return `<div class="image-strip img-strip-row">${tiles}${more}</div>`;
-}
-
-// 渲染带骨架占位的 AI 图行(生成中状态)
-function renderImageRowWithSkeleton(list, doneCount, pendingCount) {
-  const doneTiles = list.slice(0, doneCount).map((item, index) => {
-    const encoded = imageSetToken([item]);
-    return `
-    <button class="image-tile" type="button"
-      data-action="preview"
-      data-src="${escapeHtml(item.src)}"
-      data-index="${index}"
-      data-images="${encoded}"
-      title="${escapeHtml(item.title)}">
-      <img src="${escapeHtml(item.src)}" loading="lazy" alt="">
-      <span class="tile-badge ai">AI</span>
-    </button>`;
-  }).join("");
-  const skeletonTiles = Array.from({ length: pendingCount }, () =>
-    `<span class="image-tile tile-skeleton" title="生成中..."><span class="skeleton-spinner"></span></span>`
-  ).join("");
-  return `<div class="image-strip img-strip-row">${doneTiles}${skeletonTiles}</div>`;
 }
 
 function renderImageStrip(list, tail = "") {

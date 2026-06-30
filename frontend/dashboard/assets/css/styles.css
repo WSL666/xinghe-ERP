@@ -1754,28 +1754,3 @@ tbody tr:nth-child(even) td {
 .tx-tag.tx-in { background: #dcfce7; color: #16a34a; }
 .tx-tag.tx-out { background: #fee2e2; color: #dc2626; }
 
-/* 骨架占位(生成中的图片) */
-.tile-skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s infinite;
-  cursor: default;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.tile-skeleton .skeleton-spinner {
-  width: 18px;
-  height: 18px;
-  border: 2px solid #ccc;
-  border-top-color: #888;
-  border-radius: 50%;
-  animation: skeleton-spin 0.8s linear infinite;
-}
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-@keyframes skeleton-spin {
-  to { transform: rotate(360deg); }
-}
