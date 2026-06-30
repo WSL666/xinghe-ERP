@@ -246,10 +246,32 @@ function renderThumbs(items, mode = "remote") {
   `).join("")}</div>`;
 }
 
-function renderImageRows(originals, generated) {
+function renderImageRows(originals, generated, item) {
   // 源图一行、AI 图一行（各自独立），每行最多 10 张，两行垂直堆叠
   const originalList = normalizeImageItems(originals).map((it) => ({ ...it, kind: "orig" }));
   const generatedList = normalizeImageItems(generated, "generated").map((it) => ({ ...it, kind: "ai" }));
+
+  // 生成中: 已完成的图 + 骨架占位(让用户看到进度)
+  const isGenerating = item && (item.status === "generating" || item.status === "queued");
+  if (isGenerating) {
+    // 期望生成的图片数(通常 6~8,取 image_count 或默认 6)
+    const expected = item.image_count || 6;
+    const doneCount = generatedList.length;
+    const pendingCount = Math.max(0, expected - doneCount);
+    // 构造骨架占位 tile
+    const skeletons = Array.from({ length: pendingCount }, (_, i) => ({
+      kind: "ai-skeleton",
+      title: "生成中",
+    }));
+    const aiList = [...generatedList, ...skeletons];
+    return `
+      <div class="image-row-stack">
+        ${renderImageRow(originalList, "orig", "源")}
+        ${renderImageRowWithSkeleton(aiList, doneCount, pendingCount)}
+      </div>
+    `;
+  }
+
   return `
     <div class="image-row-stack">
       ${renderImageRow(originalList, "orig", "源")}
@@ -283,6 +305,27 @@ function renderImageRow(list, kind, label) {
     ? `<span class="image-tile tile-more" title="共 ${list.length} 张${label}图"><span>+${overflow}</span></span>`
     : "";
   return `<div class="image-strip img-strip-row">${tiles}${more}</div>`;
+}
+
+// 渲染带骨架占位的 AI 图行(生成中状态)
+function renderImageRowWithSkeleton(list, doneCount, pendingCount) {
+  const doneTiles = list.slice(0, doneCount).map((item, index) => {
+    const encoded = imageSetToken([item]);
+    return `
+    <button class="image-tile" type="button"
+      data-action="preview"
+      data-src="${escapeHtml(item.src)}"
+      data-index="${index}"
+      data-images="${encoded}"
+      title="${escapeHtml(item.title)}">
+      <img src="${escapeHtml(item.src)}" loading="lazy" alt="">
+      <span class="tile-badge ai">AI</span>
+    </button>`;
+  }).join("");
+  const skeletonTiles = Array.from({ length: pendingCount }, () =>
+    `<span class="image-tile tile-skeleton" title="生成中..."><span class="skeleton-spinner"></span></span>`
+  ).join("");
+  return `<div class="image-strip img-strip-row">${doneTiles}${skeletonTiles}</div>`;
 }
 
 function renderImageStrip(list, tail = "") {
@@ -477,7 +520,7 @@ function renderProducts() {
           </div>
         </td>
         <td><span class="badge ${status.cls}" title="${escapeHtml(item.status_msg || "")}">${status.text}</span></td>
-        <td>${renderImageRows(item.gallery_images || [], generated)}</td>
+        <td>${renderImageRows(item.gallery_images || [], generated, item)}</td>
         <td>${renderSpecCell(item)}</td>
         <td>${renderVideoStrip(item)}</td>
         <td>${renderSizeCell(item)}</td>
@@ -803,7 +846,7 @@ function openDetail(id) {
     <h3>${escapeHtml(title)}</h3>
     <p class="hint">编号 ${escapeHtml(item.ref_code || item.id)} · 状态 ${escapeHtml(item.status || "pending")}</p>
     <h4>图片</h4>
-    ${renderImageRows(item.gallery_images || [], generatedOk(item))}
+    ${renderImageRows(item.gallery_images || [], generatedOk(item), item)}
     <h4>步骤日志</h4>
     ${renderStepLogs(item)}
     <details class="debug-json">

@@ -103,7 +103,8 @@ def _step3_vision(env: dict[str, str], product: Product,
     return result
 
 
-def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any]) -> list[dict[str, Any]]:
+def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any],
+                      user_id: int = 0, import_id: int = 0, store: Any = None) -> list[dict[str, Any]]:
     """图生图:按视觉给的 prompt 调 VibeLearning,并行生成。"""
     import traceback as _tb
 
@@ -193,7 +194,17 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
             futures = [ex.submit(_gen_one, i, len(prompt_items), n, p)
                        for i, (n, p) in enumerate(prompt_items, start=1)]
             for f in as_completed(futures):
-                generated.append(f.result())
+                result = f.result()
+                generated.append(result)
+                # 每张图完成立即写库 → 前端轮询能实时看到图片逐张出现
+                if result.get("generated_image"):
+                    try:
+                        store.append_generated_image(user_id, import_id, {
+                            "image_type": result["image_type"],
+                            "generated_image": result["generated_image"],
+                        })
+                    except Exception:
+                        pass
 
         # 检查结果: 区分"key 失效"和"普通失败"
         has_key_error = any("ApiKeyError" in (g.get("error") or "") for g in generated)
@@ -390,7 +401,7 @@ def execute(
         try:
             if _timed_out():
                 raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s deadline before image generation")
-            generated = _step4_generate(env, product, vision)
+            generated = _step4_generate(env, product, vision, user_id=user_id, import_id=import_id, store=store)
             step4_ok = True
             store.update_step4(user_id, import_id, generated, done=True)
             ok_count = sum(1 for g in generated if g.get("generated_image"))

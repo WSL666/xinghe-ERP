@@ -558,6 +558,24 @@ def update_step4(user_id: int, import_id: int, generated: list[dict[str, Any]], 
         )
 
 
+def append_generated_image(user_id: int, import_id: int, image_data: dict[str, Any]) -> None:
+    """原子追加一张生成的图片到 generated_json(供前端实时展示)。
+
+    用 PostgreSQL 的 jsonb || 操作,不需要读-改-写,天然无竞态。
+    多个生图线程同时调用也不会覆盖彼此的结果。
+    """
+    one = json.dumps([image_data], ensure_ascii=False)
+    with db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE imports
+            SET generated_json = generated_json || %s::jsonb, updated_at = now()
+            WHERE user_id = %s AND id = %s
+            """,
+            (one, user_id, import_id),
+        )
+
+
 def update_status(user_id: int, import_id: int, status: str, msg: str = "") -> None:
     with db_conn() as conn:
         conn.execute(
