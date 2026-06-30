@@ -207,7 +207,7 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
                         pass
 
         # 检查结果: 区分"key 失效"和"普通失败"
-        has_key_error = any("ApiKeyError" in (g.get("error") or "") for g in generated)
+        has_key_error = any("key 失效" in (g.get("error") or "") or "401" in (g.get("error") or "") or "403" in (g.get("error") or "") for g in generated)
         has_timeout_error = any("exceeded" in (g.get("error") or "") or "timeout" in (g.get("error") or "").lower() for g in generated)
         all_failed = all(g.get("error") for g in generated)
         success_count = sum(1 for g in generated if g.get("generated_image"))
@@ -392,6 +392,8 @@ def execute(
     if s3.get("ok"):
         vision = s3["vision"]
         store.update_status(user_id, import_id, "generating", "vision done, image generation running")
+        # 清空旧图片(防止崩溃重跑时残留重复 append)
+        store.update_step4(user_id, import_id, [], done=False)
         import datetime as _dt
         step_key, label = "step4_generation", "图片生成"
         started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

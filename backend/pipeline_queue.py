@@ -258,6 +258,7 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
         user_id: int | None = None
         import_id: int | None = None
         acquired = False
+        heartbeat = None
         try:
             payload = json.loads(raw_payload)
             user_id = int(payload["user_id"])
