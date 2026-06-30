@@ -415,7 +415,8 @@ def execute(
                                                       for g in generated]},
                               started_at=started, label=label)
         except Exception as exc:
-            store.update_step4(user_id, import_id, [], done=False)
+            # 保留 append 已写入的成功图(不清空 generated_json)。
+            # 只标 step4_done=False + error, 用户已看到的图不会消失。
             store.update_status(user_id, import_id, "error", f"image generation failed: {exc}")
             store.record_step(user_id, import_id, step_key, "failed",
                               error=str(exc), started_at=started, label=label)
