@@ -14,7 +14,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from config import get_settings
-from security import create_api_key, hash_api_key, hash_password, normalize_login
+from security import create_api_key, hash_password, normalize_login
 
 
 def utc_now_iso() -> str:
@@ -148,21 +148,27 @@ def init_db() -> None:
                 id BIGSERIAL PRIMARY KEY,
                 account TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
-                api_key_hash TEXT NOT NULL DEFAULT '',
-                api_key_preview TEXT NOT NULL DEFAULT '',
+                api_key TEXT NOT NULL DEFAULT '',
                 display_name TEXT NOT NULL DEFAULT '',
                 is_verified BOOLEAN NOT NULL DEFAULT TRUE,
                 is_active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 enterprise_id BIGINT,
-                role TEXT NOT NULL DEFAULT 'member'
+                role TEXT NOT NULL DEFAULT 'member',
+                beans INTEGER NOT NULL DEFAULT 100
             )
             """
         )
         # uid 字段(老库兼容: ALTER 加列; 已建好的库此处为空操作)
         conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS uid TEXT")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_uid_key ON users(uid)")
+        # 金豆字段(老库兼容; 新用户默认100)
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS beans INTEGER NOT NULL DEFAULT 100")
+        # import_seq: 每用户自增序号(生成 uid+序号 用)
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS import_seq INTEGER NOT NULL DEFAULT 0")
+        # user_seq: imports 每用户的序号
+        conn.execute("ALTER TABLE imports ADD COLUMN IF NOT EXISTS user_seq INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS verification_codes (
@@ -198,6 +204,7 @@ def init_db() -> None:
                 spec_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                 video_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                 size_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                user_seq INTEGER NOT NULL DEFAULT 0,
                 finished_at TIMESTAMPTZ,
                 status TEXT NOT NULL DEFAULT 'pending',
                 status_msg TEXT NOT NULL DEFAULT '',
@@ -209,12 +216,16 @@ def init_db() -> None:
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_imports_user_created ON imports(user_id, created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_imports_user_status ON imports(user_id, status)")
-        for col, col_def in [
-            ("api_key_hash", "TEXT NOT NULL DEFAULT ''"),
-            ("api_key_preview", "TEXT NOT NULL DEFAULT ''"),
-        ]:
-            if not _column_exists(conn, "users", col):
-                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
+        # 插件 API 密钥: 明文存储(uid+8位随机), 永久固定
+        if not _column_exists(conn, "users", "api_key"):
+            conn.execute("ALTER TABLE users ADD COLUMN api_key TEXT NOT NULL DEFAULT ''")
+        # 老库迁移: 若还有旧的 hash/preview 列则丢弃(数据不可逆, 老用户登录时重新生成)
+        for _legacy_col in ("api_key_hash", "api_key_preview"):
+            if _column_exists(conn, "users", _legacy_col):
+                try:
+                    conn.execute(f"ALTER TABLE users DROP COLUMN IF EXISTS {_legacy_col}")
+                except Exception:
+                    pass
         for col, col_def in [
             ("spec_json", "JSONB NOT NULL DEFAULT '{}'::jsonb"),
             ("video_json", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
@@ -270,9 +281,9 @@ def get_or_create_dev_user() -> dict[str, Any]:
     account = "admin"
     user = get_user_by_account(account)
     if user:
-        if not user.get("api_key_hash"):
-            return reset_user_api_key(int(user["id"]))["user"]
-        return user
+        if not user.get("api_key"):
+            ensure_user_api_key(int(user["id"]))
+        return get_user_by_account(account) or user
     return create_user(account=account, password="123456", display_name="Admin")
 
 
@@ -295,27 +306,25 @@ def generate_uid() -> str:
 def create_user(account: str, password: str, display_name: str = "") -> dict[str, Any]:
     normalized = normalize_login(account)
     password_hash = hash_password(password)
-    api_key = create_api_key()
     with db_conn() as conn:
         uid = generate_uid()
+        api_key = create_api_key(uid)
         row = conn.execute(
             """
-            INSERT INTO users (uid, account, password_hash, api_key_hash, api_key_preview, display_name, is_verified)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            RETURNING id, uid, account, api_key_preview, display_name, is_verified, is_active, created_at
+            INSERT INTO users (uid, account, password_hash, api_key, display_name, is_verified)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, uid, account, api_key, display_name, is_verified, is_active, created_at
             """,
             (
                 uid,
                 normalized,
                 password_hash,
-                hash_api_key(api_key),
-                api_key[-8:],
+                api_key,
                 display_name or normalized,
                 get_settings().auto_verify_users,
             ),
         ).fetchone()
     user = dict(row)
-    user["api_key"] = api_key
     return user
 
 
@@ -342,31 +351,34 @@ def get_user_by_uid(uid: str) -> dict[str, Any] | None:
 
 
 def get_user_by_api_key(api_key: str) -> dict[str, Any] | None:
-    if not api_key or not api_key.startswith("ppe_"):
+    if not api_key:
         return None
     with db_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE api_key_hash = %s",
-            (hash_api_key(api_key),),
+            "SELECT * FROM users WHERE api_key = %s",
+            (api_key,),
         ).fetchone()
     return dict(row) if row else None
 
 
-def reset_user_api_key(user_id: int) -> dict[str, Any]:
-    api_key = create_api_key()
+def ensure_user_api_key(user_id: int) -> str:
+    """老用户补发固定密钥(uid+8位随机)。已有则不动。返回密钥明文。"""
     with db_conn() as conn:
         row = conn.execute(
-            """
-            UPDATE users
-            SET api_key_hash = %s, api_key_preview = %s, updated_at = now()
-            WHERE id = %s
-            RETURNING *
-            """,
-            (hash_api_key(api_key), api_key[-8:], user_id),
+            "SELECT uid, api_key FROM users WHERE id = %s", (user_id,)
         ).fetchone()
-    user = dict(row)
-    user["api_key"] = api_key
-    return {"user": user, "api_key": api_key}
+        if not row:
+            return ""
+        existing = row.get("api_key") or ""
+        if existing:
+            return existing
+        uid = row.get("uid") or ""
+        api_key = create_api_key(uid)
+        conn.execute(
+            "UPDATE users SET api_key = %s, updated_at = now() WHERE id = %s",
+            (api_key, user_id),
+        )
+        return api_key
 
 
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
@@ -376,12 +388,11 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "account": user["account"],
         "display_name": user.get("display_name") or user["account"],
         "is_verified": bool(user.get("is_verified")),
-        "api_key_preview": user.get("api_key_preview", ""),
+        "api_key": user.get("api_key", "") or "",
         "role": user.get("role", "member"),
         "enterprise_id": user.get("enterprise_id"),
+        "beans": int(user.get("beans") or 0),
     }
-    if user.get("api_key"):
-        data["api_key"] = user["api_key"]
     return data
 
 
@@ -393,13 +404,19 @@ def insert_import(user_id: int, payload: dict[str, Any]) -> int:
     videos = payload.get("videos", []) or []
     size = payload.get("size", {}) or {}
     with db_conn() as conn:
+        # 原子拿该用户的自增序号(并发安全)
+        seq_row = conn.execute(
+            "UPDATE users SET import_seq = import_seq + 1 WHERE id = %s RETURNING import_seq",
+            (user_id,),
+        ).fetchone()
+        user_seq = int(seq_row["import_seq"]) if seq_row else 0
         row = conn.execute(
             """
             INSERT INTO imports (
                 user_id, goods_id, title, sku_count, image_count, raw_json,
-                spec_json, video_json, size_json, platform
+                spec_json, video_json, size_json, platform, user_seq
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
@@ -413,6 +430,7 @@ def insert_import(user_id: int, payload: dict[str, Any]) -> int:
                 json.dumps(videos, ensure_ascii=False),
                 json.dumps(size, ensure_ascii=False),
                 (payload.get("platform") or "temu").strip().lower(),
+                user_seq,
             ),
         ).fetchone()
     return int(row["id"])
@@ -441,6 +459,10 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
         item["finished_at"] = item["finished_at"].strftime("%Y-%m-%d %H:%M:%S")
     for key in ("step2_done", "step3_done", "step4_done"):
         item[key] = 1 if item.get(key) else 0
+    # ref_code: 用户uid+序号(如 aB3xK9mP1), 供展示和查询用
+    owner_uid = item.pop("owner_uid", None) or ""
+    seq = item.get("user_seq") or 0
+    item["ref_code"] = f"{owner_uid}{seq}" if owner_uid else str(seq)
     return item
 
 
@@ -449,18 +471,22 @@ def list_imports(user_id: int, platform: str | None = None) -> list[dict[str, An
         if platform:
             rows = conn.execute(
                 """
-                SELECT * FROM imports
-                WHERE user_id = %s AND platform = %s
-                ORDER BY id DESC
+                SELECT i.*, u.uid AS owner_uid
+                FROM imports i
+                JOIN users u ON u.id = i.user_id
+                WHERE i.user_id = %s AND i.platform = %s
+                ORDER BY i.id DESC
                 """,
                 (user_id, platform),
             ).fetchall()
         else:
             rows = conn.execute(
                 """
-                SELECT * FROM imports
-                WHERE user_id = %s
-                ORDER BY id DESC
+                SELECT i.*, u.uid AS owner_uid
+                FROM imports i
+                JOIN users u ON u.id = i.user_id
+                WHERE i.user_id = %s
+                ORDER BY i.id DESC
                 """,
                 (user_id,),
             ).fetchall()
@@ -470,11 +496,15 @@ def list_imports(user_id: int, platform: str | None = None) -> list[dict[str, An
 def get_import(user_id: int, import_id: int, compact: bool = False) -> dict[str, Any] | None:
     with db_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM imports WHERE user_id = %s AND id = %s",
+            """
+            SELECT i.*, u.uid AS owner_uid
+            FROM imports i JOIN users u ON u.id = i.user_id
+            WHERE i.user_id = %s AND i.id = %s
+            """,
             (user_id, import_id),
         ).fetchone()
     return _row_to_import(dict(row), compact=compact) if row else None
-    return _row_to_import(dict(row), compact=compact) if row else None
+
 def get_raw_import(user_id: int, import_id: int) -> dict[str, Any] | None:
     row = get_import(user_id, import_id)
     return row.get("raw_json") if row else None
@@ -707,7 +737,6 @@ def create_enterprise_with_owner(
         raise ValueError("enterprise name is required")
 
     password_hash = hash_password(password)
-    api_key = create_api_key()
 
     with db_conn() as conn:
         invite_code = generate_invite_code()
@@ -732,16 +761,17 @@ def create_enterprise_with_owner(
         enterprise = _row_enterprise(dict(ent_row))
         enterprise_id = enterprise["id"]
 
+        owner_uid = generate_uid()
+        api_key = create_api_key(owner_uid)
         user_row = conn.execute(
             """
-            INSERT INTO users (account, password_hash, api_key_hash, api_key_preview, display_name, enterprise_id, role)
+            INSERT INTO users (uid, account, password_hash, api_key, display_name, enterprise_id, role)
             VALUES (%s, %s, %s, %s, %s, %s, 'owner')
             RETURNING *
             """,
-            (normalized, password_hash, hash_api_key(api_key), api_key[-8:], display_name or normalized, enterprise_id),
+            (owner_uid, normalized, password_hash, api_key, display_name or normalized, enterprise_id),
         ).fetchone()
         user = dict(user_row)
-        user["api_key"] = api_key
 
         conn.execute(
             """

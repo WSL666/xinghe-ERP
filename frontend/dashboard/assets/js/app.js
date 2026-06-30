@@ -47,6 +47,7 @@ const views = {
   products: { title: "TEMU采集箱", eyebrow: "商品采集箱" },
   box1688: { title: "1688采集箱", eyebrow: "商品采集箱" },
   boxOzon: { title: "OZON采集箱", eyebrow: "商品采集箱" },
+  recharge: { title: "钱包", eyebrow: "账户" },
   settings: { title: "设置", eyebrow: "配置" },
   agent: { title: "智能体", eyebrow: "AI创作中心" },
   aiImage: { title: "AI生图", eyebrow: "AI创作中心" },
@@ -159,13 +160,27 @@ function showApp() {
 
 
 
+const _MASK = "••••••••••••";
+
+function _applyMask(el) {
+  if (!el) return;
+  const real = el.dataset.real || "";
+  el.dataset.visible = "0";
+  el.value = real ? _MASK : "";
+  el.type = "text";
+}
+
+function _revealReal(el) {
+  if (!el) return;
+  el.dataset.visible = "1";
+  el.value = el.dataset.real || "";
+}
+
 function syncApiText() {
   const urlEl = $("#pluginUrl");
-  if (urlEl) urlEl.value = state.apiBase;
+  if (urlEl) { urlEl.dataset.real = state.apiBase || ""; _applyMask(urlEl); }
   const apiKeyInput = $("#pluginApiKey");
-  if (apiKeyInput) {
-    apiKeyInput.value = state.user?.api_key || state.user?.api_key_preview || "";
-  }
+  if (apiKeyInput) { apiKeyInput.dataset.real = state.user?.api_key || ""; _applyMask(apiKeyInput); }
 }
 
 function setApiStatus(status, text) {
@@ -341,7 +356,7 @@ function renderRecent() {
       <article class="recent-item">
         <div>
           <strong>${escapeHtml(title)}</strong>
-          <small>#${escapeHtml(item.id)} - ${escapeHtml(item.created_at || "")}</small>
+          <small>编号 ${escapeHtml(item.ref_code || item.id)} - ${escapeHtml(item.created_at || "")}</small>
         </div>
         <span class="badge ${status.cls}">${status.text}</span>
       </article>
@@ -442,7 +457,7 @@ function renderProducts() {
             <div class="title-line title-orig" title="${origTitle}"><span>原</span>${origTitle}</div>
             <div class="title-line title-ai" title="${escapeHtml(item.cn_title || "")}"><span>新</span>${cnTitle}</div>
             <div class="title-line title-en" title="${escapeHtml(item.en_title || "")}"><span>英</span>${enTitle}</div>
-            <small class="meta">ID ${escapeHtml(item.id)} / ${escapeHtml(item.goods_id || "无 goodsId")}</small>
+            <div class="ref-row"><small class="ref-badge">ID: ${escapeHtml(item.ref_code || item.id)}</small><button class="ref-copy" data-action="copy-ref" data-ref="${escapeHtml(item.ref_code || item.id)}" title="复制编号" type="button">复制</button></div>
           </div>
         </td>
         <td><span class="badge ${status.cls}" title="${escapeHtml(item.status_msg || "")}">${status.text}</span></td>
@@ -485,7 +500,53 @@ function setView(name) {
   if (panelName === "products" && prevPlatform !== state.platform) {
     refreshData({ silent: true });
   }
+  if (state.view === "recharge") updateRechargePanel();
   syncNavGroup();
+}
+
+async function updateRechargePanel() {
+  const u = state.user || {};
+  const uidEl = $("#rechargeUid");
+  if (uidEl) uidEl.textContent = u.uid || "-";
+  let beans = 0;
+  try {
+    const data = await apiFetch("/api/billing/balance");
+    beans = data.beans != null ? data.beans : 0;
+  } catch (e) {
+    beans = u.beans != null ? u.beans : 0;
+  }
+  const beansEl = $("#beansBalance");
+  if (beansEl) beansEl.textContent = beans;
+  // 账单明细
+  try {
+    const txData = await apiFetch("/api/billing/transactions?limit=30");
+    const rows = txData.transactions || [];
+    const tbody = $("#billingRows");
+    if (!tbody) return;
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px">暂无记录</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(tx => {
+      const amt = tx.amount;
+      const sign = amt > 0 ? "+" : "";
+      const cls = amt > 0 ? "tx-in" : "tx-out";
+      const time = (tx.created_at || "").replace("T", " ").slice(0, 16);
+      const reason = escapeHtml(tx.reason || "");
+      const ref = tx.ref_code || "";
+      const refCell = ref
+        ? `<div class="billing-ref-row"><span class="billing-ref">${escapeHtml(ref)}</span><button class="ref-copy" data-action="copy-ref" data-ref="${escapeHtml(ref)}" type="button">复制</button></div>`
+        : "";
+      return `<tr>
+        <td>${time}</td>
+        <td><span class="tx-tag ${cls}">${amt > 0 ? "充值" : "消费"}</span></td>
+        <td class="${cls}">${sign}${amt}</td>
+        <td>${tx.balance_after}</td>
+        <td>${refCell}</td>
+        <td>${reason}</td>
+      </tr>`;
+    }).join("");
+  } catch (e) {}
 }
 
 async function refreshData({ silent = false } = {}) {
@@ -561,15 +622,6 @@ async function loadCurrentUser() {
   return data.user;
 }
 
-async function resetApiKey() {
-  const data = await apiFetch("/api/auth/api-key/reset", { method: "POST" });
-  setSession(data.user);
-  syncApiText();
-  await copyTextSafe(data.api_key);
-  const _keyInput = $("#pluginApiKey");
-  if (_keyInput) _keyInput.value = data.api_key || "";
-  toast("API 密钥已重置并复制。");
-}
 
 async function runStep(id, step) {
   const labels = {
@@ -715,7 +767,7 @@ function openDetail(id) {
   const title = item.cn_title || item.title || "未命名商品";
   const compactItem = {
     id: item.id,
-    goods_id: item.goods_id,
+    ref_code: item.ref_code,
     status: item.status,
     status_msg: item.status_msg,
     title: item.title,
@@ -733,7 +785,7 @@ function openDetail(id) {
   drawer.innerHTML = `
     <button class="ghost-btn small" data-action="close-drawer">关闭</button>
     <h3>${escapeHtml(title)}</h3>
-    <p class="hint">导入 ID ${escapeHtml(item.id)} / 状态 ${escapeHtml(item.status || "pending")}</p>
+    <p class="hint">编号 ${escapeHtml(item.ref_code || item.id)} · 状态 ${escapeHtml(item.status || "pending")}</p>
     <h4>图片</h4>
     ${renderImageRows(item.gallery_images || [], generatedOk(item))}
     <h4>步骤日志</h4>
@@ -914,8 +966,21 @@ function bindEvents() {
       if (action === "generate") await runStep(id, "generate");
       if (action === "export") await exportItem(id);
       if (action === "delete") await deleteItem(id);
-      if (action === "copy-plugin-url") { const _ok = await copyTextSafe($("#pluginUrl").value); toast(_ok ? "已复制。" : "复制失败，请手动复制。"); }
-      if (action === "reset-api-key") await resetApiKey();
+      if (action === "copy-plugin-url") { const _u = $("#pluginUrl"); const _ok = await copyTextSafe(_u ? (_u.dataset.real || "") : ""); toast(_ok ? "已复制。" : "复制失败，请手动复制。"); }
+      if (action === "copy-ref") { const _ok = await copyTextSafe(actionButton.dataset.ref || ""); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }
+      if (action === "copy-api-key") { const _inp = $("#pluginApiKey"); const _v = _inp ? (_inp.dataset.real || "") : ""; const _ok = await copyTextSafe(_v); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }
+
+      if (action === "toggle-eye") {
+        const el = $("#" + actionButton.dataset.target);
+        if (!el) return;
+        if (el.dataset.visible === "1") {
+          _applyMask(el);
+          actionButton.textContent = "👁";
+        } else {
+          _revealReal(el);
+          actionButton.textContent = "🙈";
+        }
+      }
       if (action === "toggle-nav") {
         const group = actionButton.closest(".nav-group");
         if (group) group.classList.toggle("open");

@@ -982,9 +982,32 @@ td {
 }
 
 .copy-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* 输入框+眼睛: 用一个相对定位容器包住, 眼睛叠在容器内部 */
+.input-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.input-wrap > input {
+  width: 100%;
+  padding-right: 34px;
+}
+.eye-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+  padding: 0;
+  z-index: 1;
 }
 
 .check-list {
@@ -1363,6 +1386,48 @@ th:nth-child(5) {
   margin-top: 2px;
 }
 
+/* 链接编号徽标：带背景色的胶囊 */
+.ref-row {
+  display: inline-flex;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+  margin-top: 4px;
+  padding: 2px 3px 2px 10px;
+  border-radius: 999px;
+  border: 1px solid #c7d2fe;
+  background: transparent;
+  gap: 6px;
+}
+.ref-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: #4b5563;
+  letter-spacing: 0.3px;
+  line-height: 1.4;
+}
+
+.ref-copy {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #6366f1;
+  background: #fff;
+  border: 1px solid #c7d2fe;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.ref-copy:hover {
+  background: #6366f1;
+  color: #fff;
+  border-color: #6366f1;
+}
+
+
+
 .title-line {
   display: flex;
   gap: 6px;
@@ -1661,3 +1726,30 @@ tbody tr:nth-child(even) td {
 .batch-menu button.danger:hover:not(:disabled) {
   background: rgba(220, 38, 38, 0.1);
 }
+
+/* ── 充值面板 ── */
+.recharge-card { max-width: 720px; }
+.beans-display { display: flex; align-items: baseline; gap: 8px; }
+.beans-num { font-size: 32px; font-weight: 800; color: #f59e0b; line-height: 1; }
+.beans-label { font-size: 14px; color: #64748b; }
+.recharge-body { display: flex; flex-direction: column; gap: 24px; padding-top: 8px; }
+.recharge-info { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; }
+.info-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; font-size: 14px; color: #64748b; }
+.info-row strong { color: #1e293b; font-family: monospace; font-size: 15px; }
+.info-row + .info-row { border-top: 1px solid #e2e8f0; }
+.recharge-packages { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.pkg-btn { padding: 18px 12px; border: 2px solid #e2e8f0; background: #fff; border-radius: 12px; cursor: pointer; font-size: 15px; font-weight: 600; color: #334155; transition: all .15s; }
+.pkg-btn:hover { border-color: #f59e0b; color: #f59e0b; background: #fffbeb; }
+.recharge-tip { text-align: center; color: #94a3b8; font-size: 13px; padding: 12px; background: #f1f5f9; border-radius: 8px; }
+
+/* ── 账单明细表格 ── */
+.billing-table-wrap { overflow-x: auto; }
+.billing-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.billing-table thead th { text-align: left; padding: 12px 14px; color: #64748b; font-weight: 600; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+.billing-table tbody td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; }
+.billing-table tbody tr:hover { background: #f8fafc; }
+.tx-in { color: #16a34a; font-weight: 600; }
+.tx-out { color: #dc2626; font-weight: 600; }
+.tx-tag { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; }
+.tx-tag.tx-in { background: #dcfce7; color: #16a34a; }
+.tx-tag.tx-out { background: #fee2e2; color: #dc2626; }

@@ -19,7 +19,7 @@ from security import (
 )
 from store import (
     create_user, get_user_by_account, get_user_by_id, public_user,
-    reset_user_api_key, create_enterprise_with_owner, get_enterprise_by_id,
+    ensure_user_api_key, create_enterprise_with_owner, get_enterprise_by_id,
     get_enterprise_context_for_user, join_enterprise_by_invite,
     list_enterprise_members, regenerate_invite_code,
     remove_enterprise_member, update_member_role,
@@ -137,9 +137,11 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
         user["role"] = fresh.get("role", "member")
         user["enterprise_id"] = fresh.get("enterprise_id")
     attach_session(response, int(user["id"]))
+    full = get_user_by_id(int(user["id"])) or {}
+    full.update({k: v for k, v in user.items() if k not in full})
     from core.base import log
-    log(f"注册成功: account={account} uid={user['id']}")
-    return api_ok(user=public_user(user), enterprise=enterprise)
+    log(f"注册成功: account={account} uid={full.get('uid', user['id'])}")
+    return api_ok(user=public_user(full), enterprise=enterprise)
 
 
 @router.post("/api/auth/login")
@@ -150,9 +152,13 @@ def login(payload: LoginPayload, response: Response) -> dict[str, Any]:
         raise api_error("账号或密码错误", 401)
     if not user.get("is_active"):
         raise api_error("账号已被禁用", 403)
+    # 老用户迁移: 若没有固定密钥则补发(仅一次)
+    if not user.get("api_key"):
+        ensure_user_api_key(int(user["id"]))
+        user = get_user_by_account(account) or user
     attach_session(response, int(user["id"]))
     from core.base import log
-    log(f"登录成功: account={account} uid={user['id']}")
+    log(f"登录成功: account={account} uid={user.get('uid', user['id'])}")
     return api_ok(user=public_user(user))
 
 
@@ -169,12 +175,6 @@ def auth_me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     if enterprise:
         data["enterprise"] = enterprise
     return api_ok(user=data)
-
-
-@router.post("/api/auth/api-key/reset")
-def reset_api_key(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    result = reset_user_api_key(int(user["id"]))
-    return api_ok(user=public_user(result["user"]), api_key=result["api_key"])
 
 
 # ── Enterprise 路由 ──

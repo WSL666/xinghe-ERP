@@ -98,6 +98,17 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
             logging.getLogger("temu.import").info(
                 "attr_enrich: %d/%d props matched (import)", hit, total)
 
+    # 金豆余额检查: 允许欠到-10, 余额 <= -10 时拒绝(防止无限欠费)
+    try:
+        from billing.store import get_beans
+        beans = get_beans(int(user["id"]))
+        if beans <= -10:
+            raise _err("金豆不足，请充值后再试", 402)
+    except _err:
+        raise
+    except Exception:
+        pass  # billing 查询失败不阻断主流程
+
     payload = {**payload, "platform": "temu"}
     import_id = insert_import(int(user["id"]), payload)
     run_auto_pipeline(int(user["id"]), import_id)
@@ -124,6 +135,37 @@ async def temu_get_import(import_id: int, request: Request,
     if not row:
         raise _err(f"import {import_id} not found", 404)
     return {"ok": True, "import": row}
+
+
+@router.get("/imports/by-ref/{ref_code}")
+async def temu_get_import_by_ref(ref_code: str, request: Request,
+                                 user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """按 ref_code(如 aB3xK9mP2) 查询单条。
+
+    ref_code = 用户uid + 序号。后端拆出 uid 和 seq, 定位到唯一一条。
+    """
+    ref_code = (ref_code or "").strip()
+    if not ref_code:
+        raise _err("ref_code 不能为空", 400)
+    # 拆分: uid = 字母部分, seq = 末尾数字部分
+    import re
+    m = re.match(r"^(.+?)(\d+)$", ref_code)
+    if not m:
+        raise _err("ref_code 格式错误", 400)
+    uid_part, seq_part = m.group(1), int(m.group(2))
+    target_user = get_user_by_uid(uid_part)
+    if not target_user:
+        raise _err("用户ID不存在", 404)
+    with __import__("store").db_conn() as conn:
+        row = conn.execute(
+            """SELECT * FROM imports WHERE user_id = %s AND user_seq = %s""",
+            (int(target_user["id"]), seq_part),
+        ).fetchone()
+    if not row:
+        raise _err("未找到该记录", 404)
+    compact = request.query_params.get("full") not in {"1", "true", "yes"}
+    data = get_import(int(target_user["id"]), int(row["id"]), compact=compact)
+    return {"ok": True, "import": data}
 
 
 @router.delete("/imports/{import_id}")

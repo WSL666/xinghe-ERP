@@ -368,3 +368,14 @@ def execute(
         msg = "vision failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
     store.update_finished_at(user_id, import_id)
+    # 全部成功 → 扣 10 金豆(允许欠到-10, 失败不扣)
+    if done:
+        try:
+            from billing.store import charge_beans
+            result = charge_beans(user_id, 10, "TEMU采集箱", import_id=import_id)
+            if result:
+                log(f"金豆扣除成功: user={user_id} import={import_id} 余额={result['balance_after']}")
+            else:
+                log(f"[WARN] 金豆扣费失败(余额不足): user={user_id} import={import_id}")
+        except Exception as exc:
+            log(f"[WARN] 金豆扣费异常: user={user_id} import={import_id} {exc}")

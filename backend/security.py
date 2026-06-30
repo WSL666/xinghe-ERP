@@ -89,9 +89,14 @@ def constant_time_equal(left: str, right: str) -> bool:
     return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
 
 
-def create_api_key() -> str:
-    return "ppe_" + secrets.token_urlsafe(32)
+_KEY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz"
 
 
-def hash_api_key(api_key: str) -> str:
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+def create_api_key(uid: str = "") -> str:
+    """插件 API 密钥: uid + 8位随机字符(无易混淆字符)。
+
+    uid 作为前缀保证全局唯一, 后缀随机保证不可猜测, 永久固定不可重置。
+    """
+    suffix = "".join(secrets.choice(_KEY_ALPHABET) for _ in range(8))
+    return f"{uid}{suffix}"
+

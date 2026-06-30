@@ -47,6 +47,7 @@
         </div>
 
         <a class="nav-item is-hidden" id="enterpriseNav" href="/enterprise">企业管理</a>
+        <button class="nav-item" data-view="recharge">钱包</button>
         <button class="nav-item" data-view="settings">设置</button>
      </nav>
 
@@ -209,6 +210,52 @@
         </section>
       </section>
 
+      <section id="rechargePanel" class="view-panel">
+        <section class="card recharge-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">钱包</p>
+              <h3>金豆余额</h3>
+            </div>
+            <div class="beans-display">
+              <span class="beans-num" id="beansBalance">0</span>
+              <span class="beans-label">金豆</span>
+            </div>
+          </div>
+          <div class="recharge-body">
+            <div class="recharge-info">
+              <p class="info-row"><span>用户ID</span><strong id="rechargeUid">-</strong></p>
+            </div>
+            <div class="recharge-packages">
+              <button class="pkg-btn" data-beans="100" type="button">100 金豆</button>
+              <button class="pkg-btn" data-beans="500" type="button">500 金豆</button>
+              <button class="pkg-btn" data-beans="1000" type="button">1000 金豆</button>
+              <button class="pkg-btn" data-beans="5000" type="button">5000 金豆</button>
+            </div>
+            <p class="recharge-tip">请复制您的用户ID，联系管理员完成充值</p>
+          </div>
+        </section>
+
+        <section class="card" style="margin-top:20px">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">消费记录</p>
+              <h3>账单明细</h3>
+            </div>
+          </div>
+          <div class="billing-table-wrap">
+            <table class="billing-table">
+              <thead>
+                <tr><th>时间</th><th>类型</th><th>变动</th><th>余额</th><th>ID</th><th>说明</th></tr>
+              </thead>
+              <tbody id="billingRows">
+                <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:24px">暂无记录</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
       <section id="settingsPanel" class="view-panel">
         <section class="card settings-card">
           <div class="card-head">
@@ -221,15 +268,21 @@
             <label>
               插件服务地址
               <div class="copy-row">
-                <input id="pluginUrl" readonly>
+                <div class="input-wrap">
+                  <input id="pluginUrl" readonly data-real="">
+                  <button class="eye-btn" type="button" data-action="toggle-eye" data-target="pluginUrl" title="显示/隐藏">👁</button>
+                </div>
                 <button class="ghost-btn" type="button" data-action="copy-plugin-url">复制</button>
               </div>
             </label>
             <label>
               插件 API 密钥
               <div class="copy-row">
-                <input id="pluginApiKey" type="text" readonly placeholder="登录或重置 API 密钥">
-                <button class="ghost-btn" type="button" data-action="reset-api-key">重置</button>
+                <div class="input-wrap">
+                  <input id="pluginApiKey" type="text" readonly placeholder="登录后显示密钥" data-real="">
+                  <button class="eye-btn" type="button" data-action="toggle-eye" data-target="pluginApiKey" title="显示/隐藏">👁</button>
+                </div>
+                <button class="ghost-btn" type="button" data-action="copy-api-key" title="复制密钥">复制</button>
               </div>
             </label>
           </form>

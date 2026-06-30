@@ -54,6 +54,9 @@ def _startup() -> None:
     """启动:开DB池 + 初始化表 + 恢复中断任务 + 启动worker。"""
     open_pool()
     init_db()
+    # 金豆消费记录表(billing 模块)
+    from billing.store import init_billing_tables
+    init_billing_tables()
     if settings.app_env != "production":
         get_or_create_dev_user()
     # 崩溃恢复:重新入队上次进程死亡时未完成的任务
@@ -115,6 +118,10 @@ app.include_router(temu_router)
 # API Key 池内网管理面板(/admin/keys,仅本机 + token)
 from api_key_pool import router as admin_keys_router  # noqa: E402
 app.include_router(admin_keys_router)
+
+# 充值/金豆(/api/billing/*)
+from billing import router as billing_router  # noqa: E402
+app.include_router(billing_router)
 
 
 @app.exception_handler(HTTPException)
