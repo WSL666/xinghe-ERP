@@ -18,12 +18,13 @@ from typing import Any
 
 from core.base import PipelineStepError, log, require_env
 from core.images import collect_product_images
-from core.image_gen import generate_one_image, build_edit_image
+from core.image_gen import generate_one_image, build_edit_image, ApiKeyError
 from core.oss import (
     upload_source_image_bytes_to_oss,
     upload_source_videos_to_oss,
 )
 from core.vision import analyze_product_with_retry
+from api_key_pool import get_pool
 from core.base import call_text_llm, parse_json_response
 from core.base import MAX_PARALLEL, PIPELINE_TOTAL_TIMEOUT
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -145,47 +146,98 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
         raise PipelineStepError(f"参考图索引映射失败: {exc}", {"selected_indexes": selected_indexes}) from exc
 
     edit_image = build_edit_image(selected_ref_bytes)
-    log(f"并行生成 {len(prompt_items)} 张图(最大 {MAX_PARALLEL} 并发)")
 
-    def _gen_one(task_idx: int, task_total: int, task_number: int, image_prompt: str) -> dict:
-        task_name = f"image_{task_number}"
-        log(f"[{task_idx}/{task_total}] {task_name} 开始")
-        try:
-            image_url, oss_result, elapsed, attempts = generate_one_image(
-                env=env, task_name=task_name, prompt=image_prompt,
-                api_key=vibe_api_key, base_url=vibe_base_url,
-                edit_image=edit_image, size=size, model=image_model,
-            )
-            log(f"[{task_idx}/{task_total}] {task_name} OK ({elapsed:.1f}s)")
-            return {
-                "image_type": task_name,
-                "generated_image": image_url,
-                "oss_object_key": oss_result.get("object_key", ""),
-                "prompt": image_prompt,
-                "error": None,
-                "elapsed": elapsed,
-            }
-        except Exception as exc:
-            log(f"[{task_idx}/{task_total}] {task_name} FAILED: {exc}")
-            return {
-                "image_type": task_name,
-                "generated_image": None,
-                "prompt": image_prompt,
-                "error": str(exc),
-                "elapsed": 0,
-            }
+    # ── key 池轮换: 每个任务取 1 个 key, 所有图共用 ──
+    # 单个 key 支持 10 并发, 6~8 张图用一个 key 足够。
+    # key 坏了(401/403) → mark_failed → 换新 key 重试整个批次(最多 3 轮)。
+    # 每张图超时重试 2 次(同一 key), 2 次都超时也换 key。
+    pool = get_pool("vibe")
+    fallback_key = vibe_api_key
+    MAX_KEY_ROUNDS = 3
 
-    generated = []
-    worker_count = min(MAX_PARALLEL, len(prompt_items))
-    with ThreadPoolExecutor(max_workers=worker_count) as ex:
-        futures = [ex.submit(_gen_one, i, len(prompt_items), n, p)
-                   for i, (n, p) in enumerate(prompt_items, start=1)]
-        for f in as_completed(futures):
-            generated.append(f.result())
+    for key_round in range(1, MAX_KEY_ROUNDS + 1):
+        cur_key = pool.acquire() or fallback_key
+        log(f"并行生成 {len(prompt_items)} 张图(最大 {MAX_PARALLEL} 并发, key_round={key_round}, key=...{cur_key[-6:]})")
 
+        def _gen_one(task_idx: int, task_total: int, task_number: int, image_prompt: str) -> dict:
+            task_name = f"image_{task_number}"
+            log(f"[{task_idx}/{task_total}] {task_name} 开始")
+            try:
+                image_url, oss_result, elapsed, attempts = generate_one_image(
+                    env=env, task_name=task_name, prompt=image_prompt,
+                    api_key=cur_key, base_url=vibe_base_url,
+                    edit_image=edit_image, size=size, model=image_model,
+                )
+                log(f"[{task_idx}/{task_total}] {task_name} OK ({elapsed:.1f}s)")
+                return {
+                    "image_type": task_name,
+                    "generated_image": image_url,
+                    "oss_object_key": oss_result.get("object_key", ""),
+                    "prompt": image_prompt,
+                    "error": None,
+                    "elapsed": elapsed,
+                }
+            except Exception as exc:
+                log(f"[{task_idx}/{task_total}] {task_name} FAILED: {exc}")
+                return {
+                    "image_type": task_name,
+                    "generated_image": None,
+                    "prompt": image_prompt,
+                    "error": str(exc),
+                    "elapsed": 0,
+                }
+
+        generated = []
+        worker_count = min(MAX_PARALLEL, len(prompt_items))
+        with ThreadPoolExecutor(max_workers=worker_count) as ex:
+            futures = [ex.submit(_gen_one, i, len(prompt_items), n, p)
+                       for i, (n, p) in enumerate(prompt_items, start=1)]
+            for f in as_completed(futures):
+                generated.append(f.result())
+
+        # 检查结果: 区分"key 失效"和"普通失败"
+        has_key_error = any("ApiKeyError" in (g.get("error") or "") for g in generated)
+        has_timeout_error = any("exceeded" in (g.get("error") or "") or "timeout" in (g.get("error") or "").lower() for g in generated)
+        all_failed = all(g.get("error") for g in generated)
+        success_count = sum(1 for g in generated if g.get("generated_image"))
+
+        # 有成功的图 → key 没问题, 直接返回(部分失败的图保留 error)
+        if success_count > 0:
+            if cur_key != fallback_key:
+                pool.mark_success(cur_key)
+            generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
+            log(f">>> STEP4 完成: 成功 {success_count}, "
+                f"失败 {sum(1 for g in generated if g.get('error'))}")
+            return generated
+
+        # 全部失败 + key 失效(401/403) → mark_failed → 换 key 重试
+        if all_failed and has_key_error:
+            log(f"[WARN] STEP4 key 失效(key=...{cur_key[-6:]}), mark_failed + 换 key 重试({key_round}/{MAX_KEY_ROUNDS})")
+            if cur_key != fallback_key:
+                pool.mark_failed(cur_key, 401, error="all images failed with 401/403")
+            if key_round < MAX_KEY_ROUNDS:
+                continue
+            # 3 轮 key 都失效 → 彻底失败
+            generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
+            raise PipelineStepError("image generation failed: all keys failed (401/403)", {"key_rounds": key_round})
+
+        # 全部失败 + 超时 → mark_failed → 换 key 重试
+        if all_failed and has_timeout_error:
+            log(f"[WARN] STEP4 超时(key=...{cur_key[-6:]}), 换 key 重试({key_round}/{MAX_KEY_ROUNDS})")
+            if cur_key != fallback_key:
+                pool.mark_failed(cur_key, None, error="all images timeout")
+            if key_round < MAX_KEY_ROUNDS:
+                continue
+            generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
+            raise PipelineStepError("image generation failed: timeout on all keys", {"key_rounds": key_round})
+
+        # 全部失败 + 其他原因 → 直接返回(保留 error 信息)
+        generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
+        log(f">>> STEP4 完成: 成功 {success_count}, 失败 {sum(1 for g in generated if g.get('error'))}")
+        return generated
+
+    # 不应走到这里, 但防万一
     generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
-    log(f">>> STEP4 完成: 成功 {sum(1 for g in generated if g.get('generated_image'))}, "
-        f"失败 {sum(1 for g in generated if g.get('error'))}")
     return generated
 
 
