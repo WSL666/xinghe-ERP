@@ -65,16 +65,32 @@ def _build_sku_rows(raw_import: dict[str, Any], cn_title: str, en_title: str,
     product_data = raw_import.get("product", {})
 
     raw_props = product_data.get("productProps", [])
+    # 店小秘要求产品属性 JSON 为紧凑格式(无多余空格), 且 pid/refPid/templatePid
+    # 为数字类型(无引号), vid 为字符串。空值保持空字符串。
+    def _int_or_empty(v):
+        """数字字段:有效数字转 int(去掉引号),无效则空字符串。"""
+        s = str(v).strip() if v is not None else ""
+        if not s:
+            return ""
+        try:
+            return int(s)
+        except ValueError:
+            return s
+
     clean_props = [{
-        "propName": p.get("propName", ""), "refPid": p.get("refPid", ""),
-        "pid": p.get("pid", ""), "templatePid": p.get("templatePid", ""),
-        "numberInputValue": p.get("numberInputValue", ""), "valueUnit": p.get("valueUnit", ""),
-        "vid": p.get("vid", ""), "propValue": p.get("propValue", ""),
+        "propName": p.get("propName", ""),
+        "refPid": _int_or_empty(p.get("refPid", "")),
+        "pid": _int_or_empty(p.get("pid", "")),
+        "templatePid": _int_or_empty(p.get("templatePid", "")),
+        "numberInputValue": p.get("numberInputValue", ""),
+        "valueUnit": p.get("valueUnit", ""),
+        "vid": p.get("vid", ""),
+        "propValue": p.get("propValue", ""),
     } for p in raw_props]
-    props_json = json.dumps(clean_props, ensure_ascii=False)
+    props_json = json.dumps(clean_props, ensure_ascii=False, separators=(",", ":"))
 
     pack_list = product_data.get("packList", []) or []
-    pack_list_json = json.dumps(pack_list, ensure_ascii=False) if pack_list else ""
+    pack_list_json = json.dumps(pack_list, ensure_ascii=False, separators=(",", ":")) if pack_list else ""
 
     generated_urls = [g.get("generated_image", "") for g in generated if g.get("generated_image")]
     gen_str = "\n".join(generated_urls)
