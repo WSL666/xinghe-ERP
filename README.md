@@ -95,22 +95,76 @@ redis-cli -s /var/run/product-pipeline/redis.sock info clients | grep connected_
 
 ## 快速开始
 
-### 一键启动（生产）
+> **完整启动流程**：先检查各服务状态 → 没问题再启动 → 最后验证。复制粘贴即可。
+
+### 第 0 步：检查现状（启动前先看有没有已在跑的）
 
 ```bash
-# 在仓库根目录 /root/workspace/wsl-workplace
-docker compose up -d && sleep 5
-systemctl start product-pipeline.service          # web(HTTP)
-systemctl start product-pipeline-worker.service   # worker(消费队列跑流水线)
+# ── 检查所有服务当前状态 ──
+echo "=== Docker 容器(Redis + PostgreSQL) ==="
+docker compose ps
 
-# 验证
-curl http://127.0.0.1:6688/api/health             # 应返回 {"ok":true,"status":"healthy"}
-systemctl status product-pipeline-worker.service  # worker 应 active(running)
+echo "=== web 进程 ==="
+systemctl is-active product-pipeline.service
+
+echo "=== worker 进程 ==="
+systemctl is-active product-pipeline-worker.service
+
+echo "=== Caddy 反代 ==="
+systemctl is-active caddy
+
+echo "=== Redis socket ==="
+ls -l /var/run/product-pipeline/redis.sock 2>/dev/null && redis-cli -s /var/run/product-pipeline/redis.sock ping || echo "(socket 不存在,执行下方启动即可)"
 ```
 
-两个 systemd service（模板在 `deploy/`，需 `cp` 到 `/etc/systemd/system/` 后 `systemctl daemon-reload`）：
-- `product-pipeline.service` → 托管 uvicorn web，`Restart=always`，`ExecStartPre` 自动创建 Redis socket 目录，日志追加到 `/var/log/product-pipeline.log`
-- `product-pipeline-worker.service` → 托管 `python worker.py`，`Restart=always`，`TimeoutStopSec=300`（给任务 5 分钟优雅收尾），日志追加到 `/var/log/product-pipeline-worker.log`
+正常情况应该看到：Docker 两个容器 `running`，两个 service `active`，Caddy `active`，Redis `PONG`。
+如果有 `inactive` 或连不上，继续下一步启动。
+
+### 第 1 步：启动基础设施（Docker：Redis + PostgreSQL）
+
+```bash
+cd /root/workspace/wsl-workplace
+docker compose up -d          # 启动 PostgreSQL(:5433) + Redis(Unix socket)
+sleep 3
+
+# 验证
+docker compose ps             # 两个容器都应 Up
+redis-cli -s /var/run/product-pipeline/redis.sock ping    # 应 PONG
+```
+
+### 第 2 步：启动应用（web + worker）
+
+```bash
+# web(HTTP 接口 + 入队)
+systemctl start product-pipeline.service
+# worker(消费队列跑流水线)
+systemctl start product-pipeline-worker.service
+
+# 验证两个都在跑
+systemctl is-active product-pipeline.service          # active
+systemctl is-active product-pipeline-worker.service   # active
+```
+
+### 第 3 步：验证（确认全部打通）
+
+```bash
+# 应用健康检查(直连)
+curl http://127.0.0.1:6688/api/health
+# 应返回 {"ok":true,"status":"healthy"}
+
+# 经域名 + Caddy 访问(外部)
+curl -sk https://wangshilin888.com:8443/api/health
+# 应返回 {"ok":true,"status":"healthy"}
+
+# worker 启动日志(确认 32 线程)
+tail -5 /var/log/product-pipeline-worker.log
+# 看到 "worker started with 32 thread(s)" = 正常
+
+# Redis 队列(0 = 空闲,无堆积)
+redis-cli -s /var/run/product-pipeline/redis.sock llen pipeline:queue
+```
+
+全绿 = 启动成功，可以用插件采集了。
 
 ### 一键停止
 
@@ -120,29 +174,23 @@ systemctl stop product-pipeline.service                          # 再停 web
 docker stop product-pipeline-redis product-pipeline-postgres     # 停 Redis + Postgres
 ```
 
-### 重启后端（改了代码或 .env 后）
+### 改了代码或 .env 后重启
 
-> **web 和 worker 是两个独立进程**。改了代码或 `.env` 后，**两个都要重启**，
-> 否则没重启的那个还会跑旧代码（常见坑：改了 pipeline 逻辑只重启 web，worker 仍跑老代码）。
+> **web 和 worker 是两个独立进程**，改了代码或 `.env` 后**两个都要重启**，否则没重启的还跑旧代码。
 
 ```bash
-systemctl restart product-pipeline.service          # web(改 API/路由时重启)
+systemctl restart product-pipeline.service          # web
 systemctl restart product-pipeline-worker.service   # worker(改 pipeline/队列逻辑时必须重启)
-
-# 查看重启是否成功
-systemctl status product-pipeline.service
-systemctl status product-pipeline-worker.service
-tail -5 /var/log/product-pipeline-worker.log        # 看到 "worker started" = 正常
+tail -3 /var/log/product-pipeline-worker.log        # 看到 "worker started" = 正常
 ```
 
-- 重启 worker 会触发崩溃恢复：把 DB 里 `queued`/`generating` 的任务自动重新入队
-- Redis socket 目录由 web service 的 `ExecStartPre` 自动维护，无需手动创建
-
-### 首次部署（一次性）
+### 首次部署（一次性，新机器才需要）
 
 ```bash
+cd /root/workspace/wsl-workplace
+
 # 1. 起基础设施
-docker compose up -d          # PostgreSQL(:5433) + Redis(Unix socket)
+docker compose up -d
 
 # 2. 准备后端
 cd backend
@@ -156,51 +204,29 @@ systemctl daemon-reload
 systemctl enable product-pipeline.service product-pipeline-worker.service
 
 # 4. 启动(两个都要)
-systemctl start product-pipeline.service          # web
-systemctl start product-pipeline-worker.service   # worker
+systemctl start product-pipeline.service
+systemctl start product-pipeline-worker.service
 
-# 5. 验证两个进程都在跑
-systemctl status product-pipeline.service
-systemctl status product-pipeline-worker.service
+# 5. 验证
 curl http://127.0.0.1:6688/api/health             # {"ok":true,"status":"healthy"}
+systemctl is-active product-pipeline-worker.service  # active
 ```
+
+> 镜像源：`docker-compose.yml` 镜像名带 `m.daocloud.io` 加速前缀。
 
 ### 手动启动（开发/调试，不走 systemd）
 
 ```bash
 conda activate wsl-test
-cd backend
+cd /root/workspace/wsl-workplace/backend
 
-# 方式A: 两个进程都手动开(开两个终端)
+# 方式A: 两个进程各开一个终端
 uvicorn main:app --host 127.0.0.1 --port 6688     # 终端1: web
 PIPELINE_CONCURRENCY=4 python worker.py           # 终端2: worker
 
-# 方式B: web 内嵌 worker(旧模式,简单测试用)
+# 方式B: web 内嵌 worker(简单测试,单进程)
 PIPELINE_EMBED_WORKERS=1 uvicorn main:app --host 127.0.0.1 --port 6688
-# 此时只起一个进程,web 里同时跑 worker 线程(改代码无需单独重启 worker)
 ```
-
-> 镜像源：`docker-compose.yml` 的镜像名带 `m.daocloud.io` 加速前缀（`pgvector/pgvector:pg16`、`redis:7.4-alpine`）。
-
-### 访问地址
-
-| 地址 | 说明 |
-|---|---|
-| `https://wangshilin888.com:8443/` | 落地页 |
-| `https://wangshilin888.com:8443/dashboard` | 工作台 |
-| `https://wangshilin888.com:8443/docs` | API 文档 |
-| `https://wangshilin888.com:8443/api/health` | 健康检查 |
-
-> Caddy 需运行：`systemctl start caddy`（默认开机自启）。
-
-### 本地开发（无域名/无 Caddy）
-
-```bash
-cd backend
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 6688
-```
-
-`.env` 里把 `APP_ENV=development`，此时自动创建开发账号（`admin / 123456`），cookie 不强制 HTTPS。本地若用 Docker 起的 Redis，连接串指向对应 socket 或 TCP。
 
 ## Chrome 采集插件
 
@@ -210,9 +236,10 @@ python -m uvicorn main:app --reload --host 127.0.0.1 --port 6688
 |---|---|
 | `manifest.json` | 扩展配置，`host_permissions` 为 `*://*.temu.com/*` + `https://wangshilin888.com:8443/*` |
 | `popup.html` | 弹窗界面：采集按钮、导出、店铺配置面板 |
-| `popup.js` | 核心逻辑：页面解析、属性数据库匹配、发送管线、导出 XLSX |
-| `attr_db.json` | 属性数据库（propName→pid/templatePid，pid\|propValue→vid） |
+| `popup.js` | 核心逻辑：页面解析、发送管线、导出 XLSX |
 | `xlsx.full.min.js` | SheetJS，导出 xlsx 用 |
+
+> **属性数据库**（`attr_db.json`）已挪到后端 `backend/platforms/temu/`，不再打包在插件里。插件只采集原始属性，pid/vid/templatePid 由后端入库时自动补全。
 
 **关键行为：**
 - **后端地址写死**：`popup.js` 里 `DEFAULT_PIPELINE_URL = 'https://wangshilin888.com:8443'`。
@@ -304,10 +331,9 @@ docker-compose.yml       # PostgreSQL + Redis 基础设施
    - Redis 原子「检查并发上限 + 占座」（Lua 脚本 `INCR` + `EXPIRE`），超 `PIPELINE_MAX_PER_USER` 则回队尾等待
    - 进程启动时 recovery（`list_resumable_imports`）把 DB 里 `queued`/`generating` 的任务重新入队
 3. **执行四步**（`platforms/temu/pipeline.py:execute`）：
-   - **step1**：源图/视频上传 OSS（视频失败不阻断）
-   - **step2**：DeepSeek 翻译标题（中/英）—— 与 step3 并行
-   - **step3**：视觉模型解析轮播图，选参考图 + 生成 prompt —— 与 step2 并行
-   - **step4**：VibeLearning 按提示词并行生成新图（`MAX_PARALLEL=10`），上传 OSS
+   - **统一下载**：采集到的 Temu 原图只下载一次（供后续步骤复用）
+   - **三路并行**：step1 源图上传 OSS ‖ step2 DeepSeek 翻译 ‖ step3 视觉解析（同时启动，翻译结果不再被 OSS 上传阻塞）
+   - **step4**：视觉完成后，VibeLearning 按提示词并行生成新图（`MAX_PARALLEL=10`），上传 OSS
    - 全程受 `PIPELINE_TOTAL_TIMEOUT`（15 分钟）deadline 保护
 4. **计数释放**：`finally` 里 Redis 原子 `DECR`（Lua），任何路径都保证释放，崩溃由 TTL 兜底
 5. 每步 `update_status` 写 DB，前端轮询查进度；终态 `done`/`error`
