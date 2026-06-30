@@ -33,6 +33,12 @@ def init_billing_tables() -> None:
         conn.execute(
             "ALTER TABLE bean_transactions ADD COLUMN IF NOT EXISTS import_id BIGINT"
         )
+        # 幂等防重扣: 同一 import_id 的消费记录唯一。
+        # 部分唯一索引(仅当 import_id NOT NULL 且 amount < 0),避免充值/import_id=NULL 受限。
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_bean_charge_import "
+            "ON bean_transactions (import_id) WHERE import_id IS NOT NULL AND amount < 0"
+        )
 
 
 def get_beans(user_id: int) -> int:
@@ -45,13 +51,23 @@ def get_beans(user_id: int) -> int:
 def charge_beans(user_id: int, amount: int, reason: str = "", import_id: int | None = None) -> dict[str, Any] | None:
     """扣减金豆(原子,允许欠到-10)。成功返回 {balance_after}, 余额不足返回 None。
 
+    幂等: 若带 import_id 且该 import 已扣过费, 直接返回当前余额(不重复扣)。
+    这能根治"队列重复 -> 任务重跑 -> 重复扣费"。
     WHERE beans - amount >= -10: 扣完后余额不低于 -10。
-    MAX_PER_USER=1 单用户串行, 不会并发超扣。
     """
     if amount <= 0:
         return None
     BEANS_FLOOR = -10
     with db_conn() as conn:
+        # 幂等检查: 同一 import 是否已扣过
+        if import_id is not None:
+            dup = conn.execute(
+                "SELECT 1 FROM bean_transactions WHERE import_id = %s AND amount < 0 LIMIT 1",
+                (import_id,),
+            ).fetchone()
+            if dup:
+                row = conn.execute("SELECT beans FROM users WHERE id = %s", (user_id,)).fetchone()
+                return {"balance_after": int(row["beans"]) if row else 0, "dedup": True}
         row = conn.execute(
             """
             UPDATE users SET beans = beans - %s, updated_at = now()

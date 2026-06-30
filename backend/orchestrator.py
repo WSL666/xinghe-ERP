@@ -46,6 +46,8 @@ def worker_handler(user_id: int, import_id: int) -> None:
     """worker 取出任务后的处理:按 platform 分发到对应 pipeline。
 
     被 pipeline_queue.start_workers 注册为 handler。
+    幂等保护:已处于终态(done/error)的任务直接跳过,不重复执行。
+    这能根治"重复入队 -> 已完成任务被重跑 -> status 互相覆盖"的死循环。
     """
     from platforms import dispatch
     import store
@@ -55,6 +57,15 @@ def worker_handler(user_id: int, import_id: int) -> None:
     if not row:
         update_status(user_id, import_id, "error", "import not found")
         return
+
+    status = row.get("status")
+    if status == "done":
+        log(f"skip: import={import_id} already done (duplicate queue item ignored)")
+        return
+    if status == "error":
+        log(f"skip: import={import_id} already error (duplicate queue item ignored)")
+        return
+
     platform = row.get("platform") or "temu"
     log(f">>> dispatch: platform={platform} import={import_id}")
     dispatch.execute(env, platform, user_id, import_id, store)

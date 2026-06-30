@@ -201,19 +201,32 @@ class ApiKeyPool:
 
     # ── 管理(CRUD) ──
     def add(self, api_key: str) -> bool:
-        """新增 key 到可用池。已存在(任意状态)则忽略。"""
+        """新增 key 到可用池。已存在(任意状态)则忽略。
+
+        用 pipeline 保证 ZADD + HSET 原子提交:不会出现 key 进了 ZSET 但 meta 没写的情况。
+        """
         c = _client()
         try:
             if (c.zscore(self._avail(), api_key) is not None
                     or c.zscore(self._cool(), api_key) is not None
                     or c.zscore(self._fail(), api_key) is not None):
                 return False
-            c.zadd(self._avail(), {api_key: time.time()})
-            self._set_meta(api_key, status="available", added_at=_now_iso(),
-                           last_used="-", fail_count=0, fail_reason="", fail_code=None)
+            meta_json = json.dumps({
+                "status": "available",
+                "added_at": _now_iso(),
+                "last_used": "-",
+                "fail_count": 0,
+                "fail_reason": "",
+                "fail_code": None,
+            }, ensure_ascii=False)
+            pipe = c.pipeline()
+            pipe.zadd(self._avail(), {api_key: time.time()})
+            pipe.hset(self._meta(), api_key, meta_json)
+            pipe.execute()
+            logger.info("key 添加成功 provider=%s key=%s", self.provider, _mask(api_key))
             return True
         except Exception as exc:
-            logger.error("add failed: %s", exc)
+            logger.error("add failed provider=%s key=%s: %s", self.provider, _mask(api_key), exc)
             return False
 
     def remove(self, api_key: str) -> bool:
@@ -346,6 +359,49 @@ class ApiKeyPool:
 
 
 _POOLS: dict[str, ApiKeyPool] = {}
+
+# provider → .env 里对应的兜底 key 变量名
+# 启动时若池子为空, 自动把这些 key 注入池子(防止 FLUSHDB/Redis 重启后 key 丢失)
+_ENV_KEY_MAP = {
+    "chat": "CHAT_API_KEY",
+    "vibe": "VIBE_API_KEY",
+}
+
+
+def bootstrap_from_env() -> None:
+    """启动时调用: 若某 provider 的池子为空, 自动从 .env 注入兜底 key。
+
+    这样即使 Redis 被 FLUSHDB / 重启清空, 重启服务后 key 池会自动恢复,
+    不会出现"面板加了 key 但丢了"的情况。
+    已有 key 的池子不会被修改(只补空池)。
+    """
+    try:
+        env = {}
+        from pathlib import Path as _Path
+        env_path = _Path(__file__).resolve().parent.parent / ".env"
+        if env_path.exists():
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip().strip("'").strip('"')
+        added = 0
+        for provider, env_var in _ENV_KEY_MAP.items():
+            pool = get_pool(provider)
+            # 池子非空就跳过(不覆盖手动添加的 key)
+            snap = pool.snapshot()
+            if snap["counts"]["normal"] > 0 or snap["counts"]["failed"] > 0:
+                continue
+            key = env.get(env_var, "").strip()
+            if key:
+                if pool.add(key):
+                    added += 1
+                    logger.info("bootstrap: 从 .env 注入 %s 池子 key=%s", provider, _mask(key))
+        if added:
+            logger.info("bootstrap: 共从 .env 恢复 %d 个 key 到池子", added)
+    except Exception as exc:
+        logger.warning("bootstrap_from_env failed: %s", exc)
 
 
 def get_pool(provider: str) -> ApiKeyPool:

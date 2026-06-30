@@ -29,7 +29,7 @@ QUEUE_KEY = "pipeline:queue"
 _ACTIVE_KEY = "pipeline:active:{user_id}"
 # 计数 TTL: 防止进程崩溃后计数永久残留。一个任务正常最长 ~15 分钟(PIPELINE_TOTAL_TIMEOUT),
 # 留足余量设 1 小时;只要还有任务在跑会持续 RENEXPIRE 续期,不会误删活跃计数。
-_ACTIVE_TTL_SECONDS = 3600
+_ACTIVE_TTL_SECONDS = 7200  # 2小时:长任务(多重试/大模型超时)也不会误删计数
 
 # 重建 client 的锁(避免多线程并发重建)
 _redis_client: redis_lib.Redis | None = None
@@ -142,13 +142,78 @@ def _release_slot(user_id: int) -> None:
         logger.warning("release_slot failed user=%s: %s (TTL will reclaim)", user_id, exc)
 
 
-def enqueue_pipeline(user_id: int, import_id: int) -> None:
-    payload = json.dumps({"user_id": user_id, "import_id": import_id})
+def _renew_slot(user_id: int) -> None:
+    """续期占座的 TTL(心跳)。pipeline 执行期间定期调用,
+    防止长任务(>TTL)导致 active 计数被 Redis 误删,从而突破并发上限。
+    """
     try:
+        _client().expire(_ACTIVE_KEY.format(user_id=user_id), _ACTIVE_TTL_SECONDS)
+    except Exception:
+        pass
+
+
+def _start_heartbeat(user_id: int, interval: int = 120) -> threading.Event | None:
+    """启动一个守护线程,每 interval 秒续期一次 active 计数。
+    返回 stop_event,任务结束时 set() 即可停止心跳。
+    """
+    stop = threading.Event()
+    def _beat():
+        while not stop.wait(interval):
+            _renew_slot(user_id)
+        _renew_slot(user_id)  # 最后再续一次,确保 release 前不丢
+    t = threading.Thread(target=_beat, daemon=True, name=f"active-heartbeat-{user_id}")
+    t.start()
+    return stop
+
+
+def enqueue_pipeline(user_id: int, import_id: int) -> None:
+    """幂等入队:同一 (user_id, import_id) 不重复入队。
+
+    用一个 Redis SET (pipeline:enqueued) 记录"已在队列"的成员。
+    brpop 取出执行后由 _mark_dequeued() 移除,确保能再次入队(重试)。
+    """
+    member = f"{user_id}:{import_id}"
+    try:
+        added = _client().sadd("pipeline:enqueued", member)
+        if not added:
+            logger.info("enqueue dedup skip user=%s import=%s (already queued)", user_id, import_id)
+            return
+        payload = json.dumps({"user_id": user_id, "import_id": import_id})
         _client().lpush(QUEUE_KEY, payload)
     except Exception as exc:
+        # 入队失败要回滚 SET 标记,否则永远进不了队
+        try:
+            _client().srem("pipeline:enqueued", member)
+        except Exception:
+            pass
         logger.error("enqueue failed user=%s import=%s: %s", user_id, import_id, exc)
         raise
+
+
+def _mark_dequeued(user_id: int, import_id: int) -> None:
+    """任务被 worker 取出执行后,移除"已在队列"标记(允许将来重试)。"""
+    try:
+        _client().srem("pipeline:enqueued", f"{user_id}:{import_id}")
+    except Exception:
+        pass
+
+
+def reset_queue_and_active() -> None:
+    """清空队列 + 并发计数 + 去重 SET。
+
+    在 worker 启动/崩溃恢复时调用:先把上次遗留的队列(可能有重复副本)清干净,
+    再把 active 计数归零(上次的占座随进程死亡已无意义),然后由 list_resumable_imports
+    干净地重新入队。
+    """
+    try:
+        c = _client()
+        c.delete(QUEUE_KEY)
+        for k in c.keys("pipeline:active:*"):
+            c.delete(k)
+        c.delete("pipeline:enqueued")
+        logger.info("queue reset: cleared pipeline:queue + active counts + dedup set")
+    except Exception as exc:
+        logger.warning("queue reset failed (redis down?): %s", exc)
 
 
 def active_count_for_user(user_id: int) -> int:
@@ -199,7 +264,9 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
             import_id = int(payload["import_id"])
 
             if not _acquire_slot(user_id):
-                # 该用户已达并发上限,原样塞回队尾,短暂退避避免空转
+                # 该用户已达并发上限,原样塞回队尾,短暂退避避免空转。
+                # 注意: 此时不移除去重标记(_mark_dequeued),保持"已在队列"状态,
+                # 这样 acquire 失败回队后不会被重复入队(多进程竞态安全)。
                 try:
                     _client().rpush(QUEUE_KEY, raw_payload)
                 except Exception:
@@ -213,7 +280,12 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
                 time.sleep(0.2)
                 continue
 
+            # 占座成功后才移除去重标记:确保这个 import 正在执行,
+            # 将来可以被重新入队(重试/重跑),但当前不会被重复取出。
+            _mark_dequeued(user_id, import_id)
             acquired = True
+            # 启动 active 计数心跳续期(每 120s),防止长任务 TTL 过期丢计数
+            heartbeat = _start_heartbeat(user_id)
             # 记录真正开始执行的时刻(排队结束), 供前端计算纯执行耗时
             try:
                 from store import update_started_at
@@ -232,6 +304,8 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
                 except Exception:
                     pass
         finally:
+            if heartbeat:
+                heartbeat.set()
             if acquired and user_id is not None:
                 _release_slot(user_id)
     logger.info("worker-%s exiting (stop signaled)", worker_id)

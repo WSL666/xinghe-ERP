@@ -25,10 +25,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from config import FRONTEND_ROOT, get_settings
 from store import (
-    close_pool, get_or_create_dev_user, init_db, list_resumable_imports, open_pool,
+    close_pool, get_or_create_dev_user, init_db, open_pool,
 )
-import pipeline_queue
-from orchestrator import worker_handler
 
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -57,19 +55,20 @@ def _startup() -> None:
     # 金豆消费记录表(billing 模块)
     from billing.store import init_billing_tables
     init_billing_tables()
+    # API Key 池自愈:池子为空时从 .env 自动恢复兜底 key(防 FLUSHDB/Redis 重启后丢失)
+    from api_key_pool.pool import bootstrap_from_env
+    bootstrap_from_env()
     if settings.app_env != "production":
         get_or_create_dev_user()
-    # 崩溃恢复:重新入队上次进程死亡时未完成的任务
-    try:
-        for row in list_resumable_imports():
-            pipeline_queue.enqueue_pipeline(int(row["user_id"]), int(row["id"]))
-    except Exception:
-        import logging
-        logging.getLogger("startup").exception("re-enqueue failed (redis down?)")
+    # 崩溃恢复已移交 worker 进程独占(worker.py 启动时清队列 + 重新入队)。
+    # web 进程不再做崩溃恢复,避免和 worker 产生"两个消费者都入队"的竞态。
     # worker 已拆到独立进程(worker.py),web 默认不内嵌 worker。
     # 测试/兼容旧用法:设 PIPELINE_EMBED_WORKERS=1 时仍在 web 内起 worker。
     if os.getenv("PIPELINE_EMBED_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
-        pipeline_queue.start_workers(worker_handler)
+        # 仅测试/兼容旧用法时在 web 内嵌 worker(惰性 import,避免非 embed 模式下的多余依赖)
+        import pipeline_queue as _pq
+        from orchestrator import worker_handler as _wh
+        _pq.start_workers(_wh)
         logging.getLogger("startup").info("embedded workers enabled (PIPELINE_EMBED_WORKERS=1)")
 
 
@@ -81,7 +80,8 @@ async def lifespan(_app: FastAPI):
     finally:
         close_pool()
         if os.getenv("PIPELINE_EMBED_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
-            pipeline_queue.stop_workers()
+            import pipeline_queue as _pq
+            _pq.stop_workers()
 
 
 app = FastAPI(title="Product Pipeline Digital App", version="0.2.0", lifespan=lifespan)

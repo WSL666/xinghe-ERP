@@ -26,8 +26,12 @@ router = APIRouter(prefix="/admin/keys", tags=["admin"])
 
 
 def _is_local(request: Request) -> bool:
-    client = request.client.host if request.client else ""
-    return client in ("127.0.0.1", "::1", "localhost", "0000:0000:0000:0000:0000:0000:0000:0001")
+    """IP 限制已取消:靠 ADMIN_TOKEN 保护即可(32位随机串)。
+
+    Caddy 反代时 client.host 可能是 ::ffff:127.0.0.1 等 IPv6 格式导致误拦,
+    所以直接放行,安全完全交给 token。
+    """
+    return True
 
 
 def _check_token(request: Request) -> None:
@@ -44,8 +48,6 @@ def _check_token(request: Request) -> None:
 
 
 def _guard(request: Request) -> None:
-    if not _is_local(request):
-        raise HTTPException(status_code=403, detail={"ok": False, "error": "admin panel is local-only"})
     _check_token(request)
 
 
@@ -182,6 +184,7 @@ function render(){
     <div class="add-box">
       <input type="text" id="newKey" placeholder="粘贴完整 API Key（如 sk-xxxxxxxx）添加到 ${p.label} 的可用池">
       <button onclick="addKey()">+ 添加 Key</button>
+      <button onclick="importFile()" style="background:#22c55e;white-space:nowrap" title="读取 key/ 文件夹下的 txt 批量导入(自动去重)">📥 批量导入</button>
     </div>
     <div class="section">
       <div class="section-head">
@@ -247,6 +250,19 @@ async function addKey(){
   const d = await r.json();
   toast(d.ok?('已添加到 '+ (curPool().label)): (d.error||d.detail?.error||'添加失败'));
   if(d.ok){ inp.value=''; load(); }
+}
+
+async function importFile(){
+  if(!confirm('从 key/ 文件夹批量导入 ' + curPool().label + ' 的 Key？(自动去重，已存在的不会重复添加)')) return;
+  const r = await fetch(U('/admin/keys/api/import-file'), {method:'POST',headers:H(),body:JSON.stringify({provider:state.cur})});
+  const d = await r.json();
+  if(d.ok && d.results){
+    const res = d.results[state.cur] || {};
+    toast('导入完成: 新增 ' + (res.added||0) + ' 个, 重复 ' + (res.duplicate||0) + ' 个');
+    load();
+  } else {
+    toast(d.error || d.detail?.error || '导入失败');
+  }
 }
 
 async function del(key){
@@ -353,3 +369,46 @@ def api_clear(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     provider = _require_provider(str(payload.get("provider", "")))
     n = get_pool(provider).clear_all()
     return _ok(cleared=n)
+
+
+# 文件名 → provider 映射
+_KEY_FILE_MAP = {
+    "vision_key.txt": "chat",
+    "image_generation_key.txt": "vibe",
+}
+
+
+@router.post("/api/import-file")
+def api_import_file(payload: dict[str, Any], request: Request) -> dict[str, Any]:
+    """批量导入: 读取 key/ 文件夹下的 txt, 自动去重导入到池子。
+
+    可传 provider 指定只导入某个池(chat/vibe),不传则导入所有 txt。
+    返回每个 provider 的新增数和重复数。
+    """
+    _guard(request)
+    from pathlib import Path as _Path
+    key_dir = _Path(__file__).resolve().parent / "key"
+    target_provider = str(payload.get("provider", "")).strip() or None
+    if target_provider:
+        target_provider = _require_provider(target_provider)
+    results = {}
+    for fname, provider in _KEY_FILE_MAP.items():
+        if target_provider and provider != target_provider:
+            continue
+        fpath = key_dir / fname
+        if not fpath.exists():
+            results[provider] = {"added": 0, "duplicate": 0, "skipped": "文件不存在"}
+            continue
+        pool = get_pool(provider)
+        added = 0
+        duplicate = 0
+        for line in fpath.read_text(encoding="utf-8").splitlines():
+            key = line.strip()
+            if not key or key.startswith("#"):
+                continue
+            if pool.add(key):
+                added += 1
+            else:
+                duplicate += 1
+        results[provider] = {"added": added, "duplicate": duplicate}
+    return _ok(results=results)

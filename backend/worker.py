@@ -23,6 +23,8 @@
 """
 from __future__ import annotations
 
+import atexit
+import fcntl
 import logging
 import os
 import signal
@@ -44,8 +46,57 @@ logging.basicConfig(
 )
 logger = logging.getLogger("worker")
 
+# 全局只允许一个 worker 进程消费队列(PID 文件锁)。
+# 防止运维事故(手动 python worker.py + systemd 各起一个)导致两个进程抢同一队列。
+_PID_FILE = "/var/run/product-pipeline/worker.pid"
+_pid_lock_fd = None
+
+
+def _acquire_singleton_lock() -> bool:
+    """尝试获取 worker 进程级单例锁(文件锁)。
+
+    返回 True=拿到锁(全局唯一 worker),False=已有另一个 worker 在跑。
+    锁是 advisory 的(fd 关闭即释放),进程崩溃后系统自动回收 fd,锁也自动释放。
+    """
+    global _pid_lock_fd
+    os.makedirs(os.path.dirname(_PID_FILE), exist_ok=True)
+    fd = open(_PID_FILE, "w")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        fd.close()
+        return False
+    fd.write(str(os.getpid()))
+    fd.flush()
+    _pid_lock_fd = fd
+    atexit.register(_release_singleton_lock)
+    return True
+
+
+def _release_singleton_lock() -> None:
+    global _pid_lock_fd
+    if _pid_lock_fd is not None:
+        try:
+            fcntl.flock(_pid_lock_fd, fcntl.LOCK_UN)
+            _pid_lock_fd.close()
+        except Exception:
+            pass
+        _pid_lock_fd = None
+        try:
+            os.unlink(_PID_FILE)
+        except Exception:
+            pass
+
 
 def main() -> None:
+    # 单例锁:确保全局只有一个 worker 进程消费队列
+    if not _acquire_singleton_lock():
+        logger.error("=" * 60)
+        logger.error("另一个 worker 进程已在运行(PID 文件锁被占用),本进程退出。")
+        logger.error("如需重启: systemctl restart product-pipeline-worker.service")
+        logger.error("=" * 60)
+        sys.exit(1)
+
     logger.info("=" * 60)
     logger.info("Product Pipeline Worker (standalone)")
     concurrency = max(1, int(os.getenv("PIPELINE_CONCURRENCY", "2")))
@@ -58,8 +109,10 @@ def main() -> None:
     open_pool()
     init_db()
 
-    # 崩溃恢复:把上次进程死亡时未完成的任务重新入队
+    # 崩溃恢复:先清空上次遗留的队列(可能含重复副本)+ active 计数,
+    # 再把 DB 中未完成的任务干净地重新入队。避免每重启一次就多堆一批副本。
     try:
+        pipeline_queue.reset_queue_and_active()
         resumed = 0
         for row in list_resumable_imports():
             pipeline_queue.enqueue_pipeline(int(row["user_id"]), int(row["id"]))
