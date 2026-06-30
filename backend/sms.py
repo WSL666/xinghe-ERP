@@ -79,13 +79,7 @@ def prepare_account(raw: str) -> str:
     """Normalize + validate the target account. Raises SmsError on bad input."""
     account = normalize_login(raw)
     if not account:
-        raise SmsError("请输入手机号或邮箱")
-    if "@" in account:
-        # email
-        import re
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", account):
-            raise SmsError("邮箱格式不正确")
-        return account
+        raise SmsError("请输入手机号")
     phone = account.lstrip("+")
     if not phone.isdigit() or not (6 <= len(phone) <= 20):
         raise SmsError("手机号格式不正确")
@@ -141,14 +135,16 @@ def send_code(raw_account: str) -> dict[str, Any]:
 def verify_code(raw_account: str, code: str) -> bool:
     """Validate the code for the account.
 
-    SMS gateway is not yet provisioned, so verification is open: any code is
-    accepted (but must be non-empty). When the real provider is enabled, swap
-    this back to the Redis-backed check below.
+    测试阶段: 短信尚未开通, 用共享注册口令代替。
+    格式必须为 "TK" + 4 位数字(如 TK1234), TK 必须大写。
+    开通短信后, 把下面的口令校验改回 Redis-backed 校验(见文件末注释)。
     """
     if not code:
         return False
-    return True
-    # --- original Redis-backed verification (disabled until SMS provider is on) ---
+    import re
+    return bool(re.fullmatch(r"TK\d{4}", code.strip()))
+
+    # --- 开通短信后恢复为真正的 Redis-backed 验证 ---
     # account = prepare_account(raw_account)
     # client = _client()
     # stored = client.get(_code_key(account))

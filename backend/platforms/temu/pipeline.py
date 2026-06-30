@@ -20,9 +20,7 @@ from core.base import PipelineStepError, log, require_env
 from core.images import collect_product_images
 from core.image_gen import generate_one_image, build_edit_image
 from core.oss import (
-    upload_new_image_to_oss,
     upload_source_image_bytes_to_oss,
-    upload_source_image_urls_to_oss,
     upload_source_videos_to_oss,
 )
 from core.vision import analyze_product_with_retry

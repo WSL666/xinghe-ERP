@@ -160,6 +160,9 @@ def init_db() -> None:
             )
             """
         )
+        # uid 字段(老库兼容: ALTER 加列; 已建好的库此处为空操作)
+        conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS uid TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_uid_key ON users(uid)")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS verification_codes (
@@ -273,18 +276,36 @@ def get_or_create_dev_user() -> dict[str, Any]:
     return create_user(account=account, password="123456", display_name="Admin")
 
 
+# uid 字符集: 大小写字母+数字, 去掉易混淆字符(0/O/o/I/l/1)
+_UID_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz"
+
+
+def generate_uid() -> str:
+    """Generate 8-char uid (no ambiguous chars), deduped."""
+    import secrets as _secrets
+    with db_conn() as conn:
+        for _ in range(50):
+            uid = "".join(_secrets.choice(_UID_ALPHABET) for _ in range(8))
+            exists = conn.execute("SELECT 1 FROM users WHERE uid = %s", (uid,)).fetchone()
+            if not exists:
+                return uid
+    raise RuntimeError("generate_uid collision after 50 tries")
+
+
 def create_user(account: str, password: str, display_name: str = "") -> dict[str, Any]:
     normalized = normalize_login(account)
     password_hash = hash_password(password)
     api_key = create_api_key()
     with db_conn() as conn:
+        uid = generate_uid()
         row = conn.execute(
             """
-            INSERT INTO users (account, password_hash, api_key_hash, api_key_preview, display_name, is_verified)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id, account, api_key_preview, display_name, is_verified, is_active, created_at
+            INSERT INTO users (uid, account, password_hash, api_key_hash, api_key_preview, display_name, is_verified)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, uid, account, api_key_preview, display_name, is_verified, is_active, created_at
             """,
             (
+                uid,
                 normalized,
                 password_hash,
                 hash_api_key(api_key),
@@ -296,9 +317,8 @@ def create_user(account: str, password: str, display_name: str = "") -> dict[str
     user = dict(row)
     user["api_key"] = api_key
     return user
-    user = dict(row)
-    user["api_key"] = api_key
-    return user
+
+
 def get_user_by_account(account: str) -> dict[str, Any] | None:
     with db_conn() as conn:
         row = conn.execute(
@@ -311,6 +331,13 @@ def get_user_by_account(account: str) -> dict[str, Any] | None:
 def get_user_by_id(user_id: int) -> dict[str, Any] | None:
     with db_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE id = %s", (user_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_uid(uid: str) -> dict[str, Any] | None:
+    """Lookup user by uid (for recharge/beans/support)."""
+    with db_conn() as conn:
+        row = conn.execute("SELECT * FROM users WHERE uid = %s", (uid,)).fetchone()
     return dict(row) if row else None
 
 
@@ -345,6 +372,7 @@ def reset_user_api_key(user_id: int) -> dict[str, Any]:
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
     data = {
         "id": user["id"],
+        "uid": user.get("uid", ""),
         "account": user["account"],
         "display_name": user.get("display_name") or user["account"],
         "is_verified": bool(user.get("is_verified")),

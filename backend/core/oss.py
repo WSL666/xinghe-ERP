@@ -46,22 +46,12 @@ def upload_new_image_to_oss(env: dict[str, str], img_bytes: bytes, task_name: st
     return upload_image_bytes_to_oss(env, jpg_bytes, filename, "image/jpeg", folder="2")
 
 
-def upload_source_image_urls_to_oss(env: dict[str, str], urls: list[str]) -> list[str]:
-    old_image_urls: list[str] = []
-    for index, url in enumerate(urls[:10], start=1):
-        raw_bytes, mime = download_bytes(url)
-        oss_result = upload_old_image_to_oss(env, raw_bytes, mime, index)
-        old_image_urls.append(oss_result["url"])
-    return old_image_urls
-
-
 def upload_source_image_bytes_to_oss(
     env: dict[str, str], image_bytes_list: list[bytes | None]
 ) -> list[str]:
-    """把"已下载"的图片字节上传到 OSS(不再重复下载)。
+    """把"已下载"的图片字节上传到 OSS(不重复下载)。
 
-    与 upload_source_image_urls_to_oss 的区别:后者会先下载再上传(重复下载);
-    本函数直接用 collect_product_images 已经下好的字节,省掉一次网络往返。
+    直接用 collect_product_images 已经下好的字节,省掉一次网络往返。
     image_bytes_list 中 None 跳过(下载失败的图)。
     """
     old_image_urls: list[str] = []

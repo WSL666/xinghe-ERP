@@ -325,7 +325,7 @@ button {
 .auth-message {
   position: absolute;
   left: 50%;
-  top: -48px;
+  top: 12px;
   display: none;
   min-width: 220px;
   max-width: calc(100% - 60px);

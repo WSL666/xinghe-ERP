@@ -164,13 +164,11 @@ async function sendSmsCode(account, button, panel) {
   }
 }
 
-// Bind the "获取验证码" button inside whichever panel is active.
+// 注册页"联系管理员"按钮: 测试阶段不发送短信, 提示用户找管理员拿验证码
 document.querySelectorAll("[data-send-sms]").forEach((button) => {
   button.addEventListener("click", () => {
     const panel = button.closest(".auth-modal");
-    const accountField = panel && panel.querySelector('[name="account"]');
-    if (!accountField) return;
-    sendSmsCode(accountField.value.trim(), button, panel);
+    showAuthMessage("请联系管理员获取验证码", panel);
   });
 });
 
@@ -184,6 +182,10 @@ document.querySelectorAll("[data-auth-form]").forEach((form) => {
    if (type === "login") {
      const account = form.elements.account.value.trim();
      const password = form.elements.password.value;
+     const captcha = (form.elements.captcha?.value || "").trim();
+     if (!account) { showAuthMessage("请输入手机号", panel); return; }
+     if (!password) { showAuthMessage("请输入密码", panel); return; }
+     if (captcha !== "4305") { showAuthMessage("验证码错误", panel); return; }
      try {
        await authRequest("/api/auth/login", { account, password });
        window.location.href = "/dashboard";

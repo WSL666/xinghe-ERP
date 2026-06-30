@@ -27,14 +27,10 @@ def normalize_login(value: str) -> str:
 def validate_account(value: str) -> str:
     account = normalize_login(value)
     if not account:
-        raise ValueError("account is required")
-    if "@" in account:
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", account):
-            raise ValueError("invalid email")
-        return account
+        raise ValueError("请输入手机号")
     phone = re.sub(r"\s+", "", account)
     if not re.fullmatch(r"\+?\d{6,20}", phone):
-        raise ValueError("account must be a valid phone or email")
+        raise ValueError("account must be a phone number")
     return phone
 
 
