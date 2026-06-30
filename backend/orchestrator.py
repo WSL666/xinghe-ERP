@@ -18,7 +18,6 @@ from store import get_import, update_status
 
 _env_cache: dict[str, str] = {}
 
-
 def _load_env() -> dict[str, str]:
     if not _env_cache:
         _env_cache.update(load_env(ENV_PATH))
