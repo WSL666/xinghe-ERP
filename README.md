@@ -267,7 +267,7 @@ PIPELINE_EMBED_WORKERS=1 uvicorn main:app --host 127.0.0.1 --port 6688
 
 **关键行为：**
 - **后端地址写死**：`popup.js` 里 `DEFAULT_PIPELINE_URL = 'https://wangshilin888.com:8443'`。
-- **API 密钥**：插件「店铺配置」面板填入（从网站「设置 → 插件 API 密钥」复制）。
+- **API 密钥（唯一必填）**：插件「店铺配置」面板顶部填入（从网站「设置 → 插件 API 密钥」复制）。其余 14 项（产地/长宽高/重量/库存等）全部选填，不填导出时留空。
 - **采集流程**：Temu 商品详情页点「采集」→ 解析 `window.rawData` → 「发送到管线」→ `POST /api/temu/import`（`Authorization: Bearer <key>`）。
 
 ## 配置（`backend/.env`）
@@ -366,9 +366,24 @@ docker-compose.yml       # PostgreSQL + Redis 基础设施
 
 - **Session cookie**：登录后写 `ppe_session`（`secure` 由 `APP_ENV` 控制）
 - **Bearer API Key**：插件走 `Authorization: Bearer <key>`（`_plugin_user` 校验）
-- **API Key 管理**：网站「设置 → 插件连接」查看/重置，`POST /api/auth/api-key/reset`
+- **API Key 管理**：注册时自动生成，格式 = 用户 UID + 8 位随机（如 `aB3xK9mPx7Q2mN8v`），**永久固定、不可重置**。网站「设置 → 插件 API 密钥」查看（眼睛显隐 + 复制）
+- **注册**：手机号 + 密码 + 验证码 `TK` + 4 位数字（联系管理员获取口令），无需短信
+- **登录**：手机号 + 密码 + 验证码 `4305`
 - **开发账号**：`APP_ENV != production` 时自动创建 `admin / 123456`
 - SMS 验证：`SMS_PROVIDER=console` 打印，或 `aliyun` 走阿里云短信
+
+### 金豆计费
+
+- 新用户注册送 **100 金豆**
+- 每条链接全流程成功（step2 翻译 + step3 视觉 + step4 生成）扣 **10 金豆**，失败不扣
+- 允许欠费到 **-10**，欠到 -10 后禁止新建任务
+- 钱包面板：金豆余额、充值、账单明细（含链接 ID 列，支持复制）
+
+### 链接编号（ref_code）
+
+- 每条采集链接有独立编号：**用户 UID + 序号**（如 `aB3xK9mP1`），用户自增序号从 1 开始
+- 采集箱每行显示编号徽标（带复制按钮），账单明细 ID 列也显示对应编号
+- 查询接口：`GET /api/temu/imports/by-ref/{ref_code}`
 
 ## 常用运维检查
 

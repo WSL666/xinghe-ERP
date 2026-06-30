@@ -34,15 +34,11 @@ function updateShopStatus() {
     const cfg = result.shopConfig || {};
     cachedShopConfig = cfg;  // 缓存供导出使用
     const statusEl = document.getElementById('shop-status');
-    const filled = SHOP_FIELDS.filter(f => cfg[f.key]).length;
-    if (filled >= SHOP_FIELDS.length) {
-      statusEl.textContent = '已配置 ✓';
+    if (cfg.apiKey) {
+      statusEl.textContent = '已连接 ✓';
       statusEl.className = 'model-status configured';
-    } else if (filled > 0) {
-      statusEl.textContent = `(${filled}/${SHOP_FIELDS.length})`;
-      statusEl.className = 'model-status';
     } else {
-      statusEl.textContent = '未配置';
+      statusEl.textContent = '未配置密钥';
       statusEl.className = 'model-status';
     }
   });

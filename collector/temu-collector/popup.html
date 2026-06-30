@@ -100,6 +100,9 @@
         <button class="cfg-btn shop-cfg-btn" style="width:auto;padding:2px 8px;font-size:11px;margin:0;background:#fff;color:#007bff;border:1px solid #007bff;border-radius:4px;white-space:nowrap;flex-shrink:0;">配置</button>
       </div>
       <div class="config-panel shop-panel" id="panel-shop" style="display:none;padding:4px 10px 8px 10px;border-top:1px dashed #ddd;flex-direction:column;gap:2px;width:100%;">
+        <div style="font-size:10px;color:#e74c3c;font-weight:600;margin-top:2px;">API密钥（必填）：从网站「设置 → 插件 API 密钥」复制</div>
+        <input type="password" placeholder="插件 API 密钥（必填）" id="shop-api-key" style="width:100%;padding:5px 8px;border:1px solid #e74c3c;border-radius:4px;font-size:11px;outline:none;">
+        <div style="font-size:10px;color:#bbb;margin-top:6px;">以下为选填，不填导出时留空</div>
         <div style="font-size:10px;color:#999;margin-top:2px;">产地：商品的生产地或发货地</div>
         <input type="text" placeholder="如 中国-广东省" id="shop-origin" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;outline:none;">
         <div style="font-size:10px;color:#999;margin-top:2px;">运费模板ID：物流运费模板的ID编号</div>
@@ -128,8 +131,6 @@
         <input type="text" placeholder="如 7" id="shop-sku-class-qty" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;outline:none;">
         <div style="font-size:10px;color:#999;margin-top:2px;">SKU分类单位：固定分类单位，用于导出</div>
         <input type="text" placeholder="如 个" id="shop-sku-class-unit" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;outline:none;">
-        <div style="font-size:10px;color:#999;margin-top:2px;">API密钥：从网站「设置 → 插件 API 密钥」复制</div>
-        <input type="password" placeholder="插件 API 密钥" id="shop-api-key" style="width:100%;padding:5px 8px;border:1px solid #ddd;border-radius:4px;font-size:11px;outline:none;">
         <div class="save-row" style="display:flex;gap:4px;">
           <button class="cancel-btn shop-cancel-btn" style="flex:1;padding:5px;font-size:11px;margin:0;border-radius:4px;background:#fff;color:#666;border:1px solid #ddd;">取消</button>
           <button class="save-btn shop-save-btn" style="flex:1;padding:5px;font-size:11px;margin:0;border-radius:4px;background:#007bff;color:#fff;">保存</button>
