@@ -214,6 +214,12 @@ def _worker_loop(handler: Callable[[int, int], None], worker_id: int) -> None:
                 continue
 
             acquired = True
+            # 记录真正开始执行的时刻(排队结束), 供前端计算纯执行耗时
+            try:
+                from store import update_started_at
+                update_started_at(user_id, import_id)
+            except Exception:
+                pass
             logger.info("worker-%s start user=%s import=%s", worker_id, user_id, import_id)
             handler(user_id, import_id)
             logger.info("worker-%s done user=%s import=%s", worker_id, user_id, import_id)

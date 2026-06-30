@@ -366,21 +366,37 @@ function renderRecent() {
 
 function formatTimeRange(item) {
   const created = String(item.created_at || "");
+  const started = String(item.started_at || "");
   const finished = String(item.finished_at || "");
   if (!created) return `<span class="muted-cell">-</span>`;
-  const date = created.slice(0, 10);
-  const startHM = created.slice(11, 16);
-  const finishHM = finished ? finished.slice(11, 16) : "";
-  let mins = "";
-  if (finishHM) {
-    const t0 = new Date(created.replace(" ", "T"));
-    const t1 = new Date(finished.replace(" ", "T"));
-    if (!isNaN(t0) && !isNaN(t1)) {
-      const diff = Math.max(0, Math.round((t1 - t0) / 60000));
-      mins = diff >= 60 ? (Math.round(diff / 6) / 10) + "小时" : diff + "分钟";
-    }
+
+  function _dur(t0s, t1s) {
+    const t0 = new Date(t0s.replace(" ", "T"));
+    const t1 = new Date(t1s.replace(" ", "T"));
+    if (isNaN(t0) || isNaN(t1)) return "";
+    const diff = Math.max(0, Math.round((t1 - t0) / 60000));
+    return diff >= 60 ? (Math.round(diff / 6) / 10) + "小时" : diff + "分钟";
   }
-  return `<div class="time-cell"><span>${escapeHtml(date)}</span><span>${escapeHtml(startHM)}${finishHM ? "至" + escapeHtml(finishHM) : ""}</span>${mins ? `<span>（耗时${escapeHtml(mins)}）</span>` : ""}</div>`;
+
+  // 三态:
+  // 1) 还没开始(排队中) → 只显示采集时间
+  // 2) 正在跑(有 started 没 finished) → 显示开始时间
+  // 3) 完成(有 started 和 finished) → 开始时间至结束时间(耗时)
+  const date = (started || created).slice(0, 10);
+  if (!started) {
+    // 排队中: 显示采集时间
+    const hm = created.slice(11, 16);
+    return `<div class="time-cell"><span>${escapeHtml(date)}</span><span>${escapeHtml(hm)}</span></div>`;
+  }
+  const startHM = started.slice(11, 16);
+  if (!finished) {
+    // 正在跑: 显示开始时间
+    return `<div class="time-cell"><span>${escapeHtml(date)}</span><span>${escapeHtml(startHM)}</span></div>`;
+  }
+  // 完成: 开始至结束 + 耗时(纯执行时间, 不含排队)
+  const finishHM = finished.slice(11, 16);
+  const mins = _dur(started, finished);
+  return `<div class="time-cell"><span>${escapeHtml(date)}</span><span>${escapeHtml(startHM)}至${escapeHtml(finishHM)}</span>${mins ? `<span>（耗时${escapeHtml(mins)}）</span>` : ""}</div>`;
 }
 
 function specSummary(spec) {

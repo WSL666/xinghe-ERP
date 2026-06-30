@@ -205,6 +205,7 @@ def init_db() -> None:
                 video_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                 size_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                 user_seq INTEGER NOT NULL DEFAULT 0,
+                started_at TIMESTAMPTZ,
                 finished_at TIMESTAMPTZ,
                 status TEXT NOT NULL DEFAULT 'pending',
                 status_msg TEXT NOT NULL DEFAULT '',
@@ -231,6 +232,7 @@ def init_db() -> None:
             ("video_json", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
             ("size_json", "JSONB NOT NULL DEFAULT '{}'::jsonb"),
             ("finished_at", "TIMESTAMPTZ"),
+            ("started_at", "TIMESTAMPTZ"),
             ("platform", "TEXT NOT NULL DEFAULT 'temu'"),
         ]:
             if not _column_exists(conn, "imports", col):
@@ -455,6 +457,8 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
         item["created_at"] = item["created_at"].strftime("%Y-%m-%d %H:%M:%S")
     if isinstance(item.get("updated_at"), datetime):
         item["updated_at"] = item["updated_at"].strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(item.get("started_at"), datetime):
+        item["started_at"] = item["started_at"].strftime("%Y-%m-%d %H:%M:%S")
     if isinstance(item.get("finished_at"), datetime):
         item["finished_at"] = item["finished_at"].strftime("%Y-%m-%d %H:%M:%S")
     for key in ("step2_done", "step3_done", "step4_done"):
@@ -575,6 +579,18 @@ def update_videos(user_id: int, import_id: int, videos: list[dict[str, Any]]) ->
             WHERE user_id = %s AND id = %s
             """,
             (json.dumps(videos, ensure_ascii=False), user_id, import_id),
+        )
+
+
+def update_started_at(user_id: int, import_id: int) -> None:
+    """记录任务真正开始执行的时刻(worker 抢到线程后调)。"""
+    with db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE imports SET started_at = now(), updated_at = now()
+            WHERE user_id = %s AND id = %s AND started_at IS NULL
+            """,
+            (user_id, import_id),
         )
 
 
