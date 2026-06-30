@@ -20,6 +20,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from platforms.temu.attr_enrich import enrich_product_props
+
 import pipeline_queue
 from security import create_session_token, load_session_token
 from store import (
