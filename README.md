@@ -40,26 +40,50 @@
   - 并发计数存 Redis（原子 INCR/DECR + TTL），多进程共享、崩溃不泄漏
   - 兼容旧用法：web 设 `PIPELINE_EMBED_WORKERS=1` 时仍在 web 内起 worker（仅测试用，生产不开）
 
-### 并发调参（PIPELINE_CONCURRENCY / PIPELINE_MAX_PER_USER）
+## 并发与 worker 配置（PIPELINE_CONCURRENCY / PIPELINE_MAX_PER_USER）
 
-两个环境变量控制并发，**改完要重启 worker 才生效**：
+### 在哪里设置
 
-| 变量 | 作用 | 在哪设 | 生产值 |
-|------|------|--------|--------|
-| `PIPELINE_CONCURRENCY` | worker 进程内线程数（全局并发上限 = 同时能跑几条） | worker service 的 `Environment=` 行 | **32** |
-| `PIPELINE_MAX_PER_USER` | 单用户最多同时跑几个任务（防霸占） | worker service 的 `Environment=` 行 或 `backend/.env` | **1** |
+配置文件：**`/etc/systemd/system/product-pipeline-worker.service`**
 
-```bash
-# 例: 想支持 32 人每人 1 条(当前生产配置)
-# 编辑 /etc/systemd/system/product-pipeline-worker.service
-#   Environment="PIPELINE_CONCURRENCY=32"
-#   Environment="PIPELINE_MAX_PER_USER=1"
-systemctl daemon-reload
-systemctl restart product-pipeline-worker.service
-tail -3 /var/log/product-pipeline-worker.log   # 确认打印的并发数已变
+就这两行：
+
+```ini
+Environment="PIPELINE_CONCURRENCY=32"     # 全局 worker 数(同时能跑几条)
+Environment="PIPELINE_MAX_PER_USER=1"     # 每人最多同时跑几个
 ```
 
-**容量推算**（4C/7G 无 swap，可用约 3.3G，每任务峰值 ~30-50MB）：
+| 变量 | 作用 | 当前生产值 |
+|------|------|-----------|
+| `PIPELINE_CONCURRENCY` | worker 进程内线程数（全局并发上限 = 同时能跑几条） | **32** |
+| `PIPELINE_MAX_PER_USER` | 单用户最多同时跑几个任务（防霸占） | **1** |
+
+### 怎么改（3 步）
+
+```bash
+# 1. 改数字(比如把 32 改成 48)
+nano /etc/systemd/system/product-pipeline-worker.service
+
+# 2. 让 systemd 重新加载配置
+systemctl daemon-reload
+
+# 3. 重启 worker 生效
+systemctl restart product-pipeline-worker.service
+
+# 确认生效
+tail -3 /var/log/product-pipeline-worker.log
+```
+
+日志里会打印 `PIPELINE_CONCURRENCY = 48 (worker 线程数)`，看到新数字就说明改成功了。
+
+### 两个数的关系
+
+- `CONCURRENCY` = 总盘子（32 把椅子）
+- `MAX_PER_USER` = 每人最多坐几把（1 把，公平）
+
+改的时候注意：`MAX_PER_USER` 不能大于 `CONCURRENCY`，而且 **人数 × 每人并发** 最好别超过 `CONCURRENCY`，否则就有人排队。
+
+### 容量参考（4C/7G 无 swap，可用约 3.3G，每任务峰值 ~30-50MB）
 
 | 配置 | 同时支持人数 | 内存占用 | 说明 |
 |------|------------|----------|------|
@@ -67,7 +91,7 @@ tail -3 /var/log/product-pipeline-worker.log   # 确认打印的并发数已变
 | `CONCURRENCY=32, MAX_PER_USER=1` | **32 人** | **~960MB** | **当前生产，推荐甜点位** |
 | `CONCURRENCY=48, MAX_PER_USER=1` | 45 人 | ~1.4G | 偏紧，要盯内存，API 限流风险 |
 
-> 内存不是唯一瓶颈：并发越高，同时调视觉/图片生成 API 的请求越多，API 供应商限流和 key 池容量才是真正的天花板。建议先跑 32，观察 key 池命中率和排队情况再决定是否上调。
+> 内存不是唯一瓶颈：并发越高，同时调视觉/图片生成 API 的请求越多，API 供应商限流和 key 池容量才是真正的天花板。
 
 
 > 端口：生产对外是 **8443（HTTPS，Caddy）**，应用本体是 **6688（HTTP，内网）**，PostgreSQL 绑 `127.0.0.1:5433`，Redis 无 TCP 端口。
