@@ -14,6 +14,7 @@ const SHOP_FIELDS = [
   { key: 'weight', id: 'shop-weight' },
   { key: 'declarePrice', id: 'shop-declare-price' },
   { key: 'retailPrice', id: 'shop-retail-price' },
+  { key: 'deliveryDays', id: 'shop-delivery-days' },
   { key: 'stock', id: 'shop-stock' },
   { key: 'skuClass', id: 'shop-sku-class' },
   { key: 'skuClassQty', id: 'shop-sku-class-qty' },
@@ -716,7 +717,7 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
     r[7]  = specLevelNames[1] || '';                    // 变种属性名称二
     r[8]  = specKeys[1] ? specObj[specKeys[1]] : '';    // 变种属性值二
     r[9]  = skuItem.url || sku.thumbUrl || '';          // 预览图
-    r[10] = cleanPrice(sku.price) || exportPrice;       // 申报价格（纯数字）
+    r[10] = cleanPrice(cachedShopConfig.declarePrice);   // 申报价格(店铺配置)
     function fmtDecimal(v) {
       if (!v && v !== 0) return '';
       const n = parseFloat(v);
@@ -728,17 +729,17 @@ document.getElementById('exportBtn').addEventListener('click', async () => {
     r[15] = fmtDecimal(cachedShopConfig.weight);         // 重量g（店铺配置，1位小数）
     r[19] = galleryStr;                                 // 轮播图
     r[20] = firstImg;                                   // 产品素材图
-    r[24] = exportPrice;                                // 建议零售价(与申报价格一致)
-    r[25] = sku.stock || 0;                             // 库存
-    r[26] = '9';                                        // 发货时效
+    r[24] = cleanPrice(cachedShopConfig.retailPrice);     // 建议零售价(店铺配置)
+    r[25] = cachedShopConfig.stock || '';                // 库存(店铺配置)
+    r[26] = cachedShopConfig.deliveryDays || '';          // 发货时效(店铺配置)
     r[27] = categoryId || '';                           // 分类id
     r[28] = propsJson;                                  // 产品属性
     r[29] = '[]';                                       // SPU属性
     r[30] = skcAttr;                                    // SKC属性
     r[31] = skuAttr;                                    // SKU属性
-    r[37] = '按件包装';                                  // SKU分类
-    r[38] = '7';                                        // SKU分类数量
-    r[39] = '个';                                        // SKU分类单位
+    r[37] = cachedShopConfig.skuClass || '';              // SKU分类(店铺配置)
+    r[38] = cachedShopConfig.skuClassQty || '';           // SKU分类数量(店铺配置)
+    r[39] = cachedShopConfig.skuClassUnit || '';          // SKU分类单位(店铺配置)
     r[41] = '0';                                        // 净含量数值
     r[44] = '0';                                        // SKU分类总数量
     r[45] = '';                                         // SKU分类总数量单位（用户自填）
