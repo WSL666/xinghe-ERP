@@ -568,3 +568,13 @@ body {
 .stat-ok { color: #4ade80; }
 .stat-warn { color: #fbbf24; }
 .stat-fail { color: #f87171; }
+
+/* ── 失败原因单元格（完整显示，不截断）── */
+.fail-reason-cell {
+  max-width: 420px;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #f0a0a0;
+  white-space: normal !important;
+  word-break: break-all;
+}

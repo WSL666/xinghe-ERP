@@ -104,7 +104,7 @@
     }
     if (view === "tasks") { hide("taskDetailDrawer"); }
     if (view === "monitoring") { monitorTab = "errors"; switchMonitorTab("errors"); }
-    if (view === "ai") { aiTab = "keys"; switchAITab("keys"); }
+    if (view === "ai") { switchKeyModelTab("chat"); }
   }
   function show(id) { var e = document.getElementById(id); if (e) e.style.display = ""; }
   function hide(id) { var e = document.getElementById(id); if (e) e.style.display = "none"; }
@@ -972,7 +972,7 @@
             + '<td><span class="tag ' + cls + '">' + esc(k.status) + "</span></td>"
             + "<td>" + esc(k.added_at) + "</td>"
             + "<td>" + (k.fail_count || 0) + "</td>"
-            + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td>"
+            + '<td class="fail-reason-cell">' + esc(k.fail_reason || "-") + "</td>"
             + '<td class="action-cell">'
             + '<button class="mini-btn warn" data-action="del-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">删除</button>'
             + (k.status !== "available" ? '<button class="mini-btn" data-action="revive-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">恢复</button>' : "")
@@ -991,7 +991,7 @@
           html += "<tr>"
             + '<td><span class="model-badge ' + esc(keyModelTab) + '">' + esc(label) + "</span></td>"
             + "<td><code>" + esc(k.key) + "</code></td>"
-            + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td>"
+            + '<td class="fail-reason-cell">' + esc(k.fail_reason || "-") + "</td>"
             + "<td>" + esc(k.fail_at) + "</td>"
             + '<td class="action-cell"><button class="mini-btn" data-action="revive-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">恢复</button>'
             + '<button class="mini-btn warn" data-action="del-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">删除</button></td></tr>';

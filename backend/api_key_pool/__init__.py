@@ -1,17 +1,14 @@
-"""API Key 池模块:Redis 三状态管理 + 内网管理面板。
+"""API Key 池模块:Redis 三状态管理(可用/冷却/失效)。
 
-对外暴露的公共 API(向上兼容原有 from api_key_pool import ... 用法):
+对外暴露的公共 API:
   get_pool(provider) -> ApiKeyPool
   PROVIDERS           -> {"chat": "视觉解析", "vibe": "图片生成"}
   all_snapshots()     -> 两池状态快照
-  router              -> FastAPI 管理面板路由(挂 /admin/keys)
+  bootstrap_from_env  -> 启动时空池自动从 .env 恢复兜底 key
 
-文件结构:
-  pool.py    Redis 三状态 key 池核心(可用/冷却/失效, LRU 轮换)
-  admin.py   内网管理面板(HTML 页面 + CRUD JSON API)
-  README.md  模块说明
+注意: 旧的 /admin/keys HTML 面板已删除。
+      Key 管理(增删改查)已迁移到超级管理员系统(admin-platform)的 AI 资源模块。
 """
 from .pool import ApiKeyPool, PROVIDERS, get_pool, all_snapshots
-from .admin import router
 
-__all__ = ["ApiKeyPool", "PROVIDERS", "get_pool", "all_snapshots", "router"]
+__all__ = ["ApiKeyPool", "PROVIDERS", "get_pool", "all_snapshots"]
