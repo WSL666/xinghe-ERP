@@ -51,3 +51,33 @@ def api_ranking(
     admin: dict[str, Any] = Depends(require_admin),
 ) -> dict[str, Any]:
     return {"ok": True, "ranking": enterprise_consume_ranking(limit)}
+
+
+@router.get("/report/daily")
+def report_daily(
+    days: int = Query(30, ge=1, le=365),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """近 N 天每日收入报表。"""
+    from store import revenue_daily
+    return {"ok": True, "days": days, "data": revenue_daily(days)}
+
+
+@router.get("/report/monthly")
+def report_monthly(
+    months: int = Query(6, ge=1, le=24),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """近 N 月月度报表。"""
+    from store import monthly_revenue
+    return {"ok": True, "months": months, "data": monthly_revenue(months)}
+
+
+@router.get("/report/user-ranking")
+def report_user_ranking(
+    limit: int = Query(20, ge=1, le=100),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    """用户消费排行。"""
+    from store import user_consume_ranking
+    return {"ok": True, "ranking": user_consume_ranking(limit)}

@@ -1067,3 +1067,214 @@ def batch_retry(import_ids: list[int]) -> int:
         if retry_import(import_id):
             count += 1
     return count
+
+
+# ────────────────────────────────────────────
+# 定价配置 CRUD
+# ────────────────────────────────────────────
+
+def list_pricing_configs() -> list[dict[str, Any]]:
+    """所有定价配置。"""
+    with db_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM pricing_configs ORDER BY platform, step"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_pricing_config(platform: str, step: str, cost_beans: int, is_active: bool = True) -> dict[str, Any]:
+    """新增或更新一条定价配置（UNIQUE(platform, step)）。"""
+    with db_conn() as conn:
+        row = conn.execute(
+            """
+            INSERT INTO pricing_configs (platform, step, cost_beans, is_active)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (platform, step) DO UPDATE
+            SET cost_beans = EXCLUDED.cost_beans,
+                is_active = EXCLUDED.is_active,
+                updated_at = now()
+            RETURNING *
+            """,
+            (platform, step, cost_beans, is_active),
+        ).fetchone()
+    return dict(row)
+
+
+def delete_pricing_config(config_id: int) -> bool:
+    with db_conn() as conn:
+        cur = conn.execute("DELETE FROM pricing_configs WHERE id = %s", (config_id,))
+        return cur.rowcount > 0
+
+
+def init_default_pricing() -> None:
+    """初始化默认定价（首次启动，仅插入不存在的）。"""
+    defaults = [
+        ("temu", "translate", 1),
+        ("temu", "vision", 2),
+        ("temu", "generate", 5),
+        ("1688", "translate", 1),
+        ("1688", "vision", 2),
+        ("1688", "generate", 5),
+        ("ozon", "translate", 1),
+        ("ozon", "vision", 2),
+        ("ozon", "generate", 5),
+    ]
+    with db_conn() as conn:
+        for platform, step, cost in defaults:
+            conn.execute(
+                """
+                INSERT INTO pricing_configs (platform, step, cost_beans, is_active)
+                VALUES (%s, %s, %s, TRUE)
+                ON CONFLICT (platform, step) DO NOTHING
+                """,
+                (platform, step, cost),
+            )
+
+
+# ────────────────────────────────────────────
+# 财务报表
+# ────────────────────────────────────────────
+
+def revenue_daily(days: int = 30) -> list[dict[str, Any]]:
+    """近 N 天每日收入/消费汇总。"""
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                DATE(created_at) AS date,
+                COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0) AS recharge,
+                ABS(COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0)) AS consume
+            FROM bean_transactions
+            WHERE created_at >= current_date - %s
+            GROUP BY DATE(created_at)
+            ORDER BY date DESC
+            """,
+            (days,),
+        ).fetchall()
+    return [
+        {"date": str(r["date"]), "recharge": int(r["recharge"]), "consume": int(r["consume"])}
+        for r in rows
+    ]
+
+
+def user_consume_ranking(limit: int = 20) -> list[dict[str, Any]]:
+    """用户消费金豆排行 Top N。"""
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT t.user_id, u.account, u.uid, u.display_name,
+                   e.name AS enterprise_name,
+                   ABS(COALESCE(SUM(t.amount) FILTER (WHERE t.amount < 0), 0)) AS consumed,
+                   COUNT(t.id) FILTER (WHERE t.amount < 0) AS tx_count
+            FROM bean_transactions t
+            JOIN users u ON u.id = t.user_id
+            LEFT JOIN enterprises e ON e.id = u.enterprise_id
+            GROUP BY t.user_id, u.account, u.uid, u.display_name, e.name
+            ORDER BY consumed DESC
+            LIMIT %s
+            """,
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def monthly_revenue(months: int = 6) -> list[dict[str, Any]]:
+    """近 N 个月的月度收入汇总。"""
+    with db_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                TO_CHAR(DATE_TRUNC('month', created_at), 'YYYY-MM') AS month,
+                COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0) AS recharge,
+                ABS(COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0)) AS consume,
+                COUNT(*) FILTER (WHERE amount > 0) AS recharge_count,
+                COUNT(*) FILTER (WHERE amount < 0) AS consume_count
+            FROM bean_transactions
+            WHERE created_at >= DATE_TRUNC('month', current_date) - %s * INTERVAL '1 month'
+            GROUP BY DATE_TRUNC('month', created_at)
+            ORDER BY month DESC
+            """,
+            (months,),
+        ).fetchall()
+    return [
+        {
+            "month": r["month"],
+            "recharge": int(r["recharge"]),
+            "consume": int(r["consume"]),
+            "recharge_count": int(r["recharge_count"]),
+            "consume_count": int(r["consume_count"]),
+        }
+        for r in rows
+    ]
+
+
+# ────────────────────────────────────────────
+# AI 模型配置（从 .env 读取，只读）
+# ────────────────────────────────────────────
+
+def read_ai_config() -> dict[str, Any]:
+    """读取 .env 里的 AI 模型配置（只读展示，不暴露密钥明文）。"""
+    from pathlib import Path
+    env_path = Path(__file__).resolve().parent.parent.parent / "backend" / ".env"
+    config = {}
+    if not env_path.exists():
+        return {"available": False, "error": ".env not found"}
+    env = {}
+    for line in env_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        env[k.strip()] = v.strip().strip("'").strip('"')
+
+    def mask(v):
+        if not v or len(v) <= 8:
+            return v
+        return v[:4] + "****" + v[-4:]
+
+    return {
+        "available": True,
+        "models": {
+            "chat_model": env.get("CHAT_MODEL", ""),
+            "chat_base_url": env.get("OPENAI_CHAT_BASE_URL", ""),
+            "image_model": env.get("IMAGE_MODEL", ""),
+            "image_size": env.get("IMAGE_SIZE", ""),
+            "vibe_base_url": env.get("VIBE_BASE_URL", ""),
+        },
+        "keys": {
+            "chat_api_key": mask(env.get("CHAT_API_KEY", "")),
+            "vibe_api_key": mask(env.get("VIBE_API_KEY", "")),
+        },
+        "oss": {
+            "endpoint": env.get("OSS_ENDPOINT", ""),
+            "bucket": env.get("OSS_BUCKET", ""),
+            "cdn_domain": env.get("OSS_CDN_DOMAIN", ""),
+            "use_signed_url": env.get("OSS_USE_SIGNED_URL", ""),
+        },
+        "pipeline": {
+            "max_per_user": env.get("PIPELINE_MAX_PER_USER", ""),
+        },
+    }
+
+
+def read_prompts() -> dict[str, Any]:
+    """读取各平台 prompt 模板（只读展示）。"""
+    from pathlib import Path
+    result = {}
+    prompts_root = Path(__file__).resolve().parent.parent.parent / "backend" / "platforms" / "temu" / "prompts"
+    if not prompts_root.exists():
+        return {"available": False}
+    for pf in prompts_root.glob("*.py"):
+        if pf.name == "__init__.py":
+            continue
+        try:
+            content = pf.read_text(encoding="utf-8")
+            # 提取模块级字符串常量（PROMPT / PROMPT_TEMPLATE）
+            result[pf.stem] = {
+                "filename": pf.name,
+                "lines": len(content.splitlines()),
+                "preview": content[:500],
+            }
+        except Exception:
+            pass
+    return {"available": True, "prompts": result}

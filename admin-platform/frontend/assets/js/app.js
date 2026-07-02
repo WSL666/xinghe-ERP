@@ -28,6 +28,8 @@
     enterprises: { title: "企业管理", eyebrow: "2级企业" },
     tasks: { title: "任务监控", eyebrow: "全平台任务" },
     billing: { title: "计费财务", eyebrow: "财务" },
+    pricing: { title: "定价配置", eyebrow: "金豆单价" },
+    ai: { title: "AI 资源", eyebrow: "AI" },
     monitoring: { title: "监控中心", eyebrow: "监控" },
     audit: { title: "安全审计", eyebrow: "日志" },
   };
@@ -87,6 +89,8 @@
     if (name === "enterprises") loadEnterprises();
     if (name === "tasks") loadTasks();
     if (name === "billing") loadBilling();
+    if (name === "pricing") loadPricing();
+    if (name === "ai") loadAI();
     if (name === "monitoring") loadMonitoring();
     if (name === "audit") loadAudit();
   }
@@ -100,6 +104,7 @@
     }
     if (view === "tasks") { hide("taskDetailDrawer"); }
     if (view === "monitoring") { monitorTab = "errors"; switchMonitorTab("errors"); }
+    if (view === "ai") { aiTab = "keys"; switchAITab("keys"); }
   }
   function show(id) { var e = document.getElementById(id); if (e) e.style.display = ""; }
   function hide(id) { var e = document.getElementById(id); if (e) e.style.display = "none"; }
@@ -717,6 +722,21 @@
     /* billing tabs */
     if (e.target.dataset.billingTab) { switchBillingTab(e.target.dataset.billingTab); return; }
 
+    /* ai tabs */
+    if (e.target.dataset.aiTab) { switchAITab(e.target.dataset.aiTab); return; }
+
+    /* pricing / ai actions */
+    if (action === "add-pricing") { addPricing(); return; }
+    if (action === "del-pricing") {
+      var pid = e.target.dataset.pid;
+      try {
+        await api("/api/admin/pricing/" + pid, "DELETE");
+        toast("已删除"); loadPricing();
+      } catch (err) { toast("删除失败: " + err.message); }
+      return;
+    }
+    if (action === "refresh-keys") { loadKeyPool(); toast("已刷新"); return; }
+
     /* monitoring tabs */
     if (e.target.dataset.monitorTab) { switchMonitorTab(e.target.dataset.monitorTab); return; }
 
@@ -808,6 +828,175 @@
       return;
     }
   });
+
+  /* ══════════════════════════════════════
+     定价配置
+     ══════════════════════════════════════ */
+  async function loadPricing() {
+    try {
+      var d = await api("/api/admin/pricing");
+      if (!d) return;
+      var tb = document.getElementById("pricingBody");
+      var list = d.configs || [];
+      if (!list.length) {
+        tb.innerHTML = '<tr><td colspan="7" class="empty-row">暂无定价配置</td></tr>';
+        return;
+      }
+      tb.innerHTML = list.map(function (c) {
+        return "<tr>"
+          + "<td>" + c.id + "</td>"
+          + "<td>" + esc(c.platform) + "</td>"
+          + "<td>" + esc(c.step) + "</td>"
+          + "<td><strong>" + c.cost_beans + "</strong> 豆</td>"
+          + '<td><span class="tag ' + (c.is_active ? "tag-ok" : "tag-disabled") + '">' + (c.is_active ? "启用" : "停用") + "</span></td>"
+          + "<td>" + esc(fmtTime(c.updated_at)) + "</td>"
+          + '<td><button class="mini-btn warn" data-action="del-pricing" data-pid="' + c.id + '">删除</button></td>'
+          + "</tr>";
+      }).join("");
+    } catch (e) { toast("加载定价失败: " + e.message); }
+  }
+
+  async function addPricing() {
+    var platform = document.getElementById("newPlatform").value.trim();
+    var step = document.getElementById("newStep").value.trim();
+    var cost = parseInt(document.getElementById("newCost").value, 10);
+    if (!platform || !step || isNaN(cost)) { toast("请填写完整"); return; }
+    try {
+      await api("/api/admin/pricing", "POST", { platform: platform, step: step, cost_beans: cost, is_active: true });
+      toast("定价已保存");
+      document.getElementById("newPlatform").value = "";
+      document.getElementById("newStep").value = "";
+      document.getElementById("newCost").value = "";
+      loadPricing();
+    } catch (e) { toast("保存失败: " + e.message); }
+  }
+
+  /* ══════════════════════════════════════
+     AI 资源管理
+     ══════════════════════════════════════ */
+  var aiTab = "keys";
+
+  function switchAITab(tab) {
+    aiTab = tab;
+    document.querySelectorAll(".ai-tab").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.aiTab === tab);
+    });
+    document.querySelectorAll(".ai-panel").forEach(function (p) { p.style.display = "none"; });
+    var target = document.getElementById("aiTab-" + tab);
+    if (target) target.style.display = "";
+  }
+
+  async function loadAI() {
+    loadKeyPool();
+    loadModelConfig();
+    loadPrompts();
+  }
+
+  async function loadKeyPool() {
+    try {
+      var d = await api("/api/admin/ai/keys");
+      var el = document.getElementById("keyPoolBody");
+      var rEl = document.getElementById("kRedis");
+      if (!d.connected) {
+        if (rEl) rEl.innerHTML = '<span class="tag tag-frozen">未连接</span>';
+        el.innerHTML = '<div class="hint-card"><p>Key 池未连接: ' + esc(d.error || "") + '</p></div>';
+        return;
+      }
+      var pools = d.pools || [];
+      var avail = 0, cool = 0, fail = 0;
+      pools.forEach(function (p) {
+        avail += (p.counts && p.counts.available) || 0;
+        cool += (p.counts && p.counts.cooling) || 0;
+        fail += (p.counts && p.counts.failed) || 0;
+      });
+      if (rEl) rEl.innerHTML = '<span class="tag tag-ok">已连接</span>';
+      document.getElementById("kAvail").textContent = avail;
+      document.getElementById("kCool").textContent = cool;
+      document.getElementById("kFail").textContent = fail;
+
+      el.innerHTML = pools.map(function (p) {
+        var normal = p.normal || [];
+        var failed = p.failed || [];
+        var html = '<div class="card" style="margin-bottom:1rem">'
+          + '<div class="card-head"><h3>' + esc(p.label) + ' (' + esc(p.provider) + ')</h3>'
+          + '<div class="stat-pills">'
+          + '<span class="pill green">可用 ' + ((p.counts && p.counts.available) || 0) + '</span>'
+          + '<span class="pill amber">冷却 ' + ((p.counts && p.counts.cooling) || 0) + '</span>'
+          + '<span class="pill red">失效 ' + ((p.counts && p.counts.failed) || 0) + '</span>'
+          + '</div></div>';
+        if (normal.length) {
+          html += '<table class="data-table"><thead><tr><th>Key(脱敏)</th><th>状态</th><th>添加时间</th><th>失败次数</th><th>失败原因</th></tr></thead><tbody>';
+          normal.forEach(function (k) {
+            var cls = k.status === "available" ? "tag-ok" : "tag-warn";
+            html += "<tr><td><code>" + esc(k.key) + "</code></td>"
+              + '<td><span class="tag ' + cls + '">' + esc(k.status) + "</span></td>"
+              + "<td>" + esc(k.added_at) + "</td>"
+              + "<td>" + (k.fail_count || 0) + "</td>"
+              + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td></tr>";
+          });
+          html += '</tbody></table>';
+        }
+        if (failed.length) {
+          html += '<h4 class="section-title-sm" style="color:#f0a0a0">失效 Key</h4>';
+          html += '<table class="data-table"><thead><tr><th>Key(脱敏)</th><th>失败原因</th><th>失效时间</th></tr></thead><tbody>';
+          failed.forEach(function (k) {
+            html += "<tr><td><code>" + esc(k.key) + "</code></td>"
+              + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td>"
+              + "<td>" + esc(k.fail_at) + "</td></tr>";
+          });
+          html += '</tbody></table>';
+        }
+        html += '</div>';
+        return html;
+      }).join("");
+    } catch (e) { toast("加载Key池失败: " + e.message); }
+  }
+
+  async function loadModelConfig() {
+    try {
+      var d = await api("/api/admin/ai/config");
+      var el = document.getElementById("modelConfigBody");
+      if (!d.available) { el.innerHTML = '<div class="hint-card"><p>.env 配置文件未找到</p></div>'; return; }
+      var html = '<div class="card"><div class="card-head"><h3>模型配置</h3></div><div class="detail-grid">';
+      var m = d.models || {};
+      html += detailField("Chat 模型", m.chat_model || "-");
+      html += detailField("Chat Base URL", m.chat_base_url || "-");
+      html += detailField("图片模型", m.image_model || "-");
+      html += detailField("图片尺寸", m.image_size || "-");
+      html += detailField("Vibe Base URL", m.vibe_base_url || "-");
+      var keys = d.keys || {};
+      html += detailField("Chat Key(脱敏)", keys.chat_api_key || "-");
+      html += detailField("Vibe Key(脱敏)", keys.vibe_api_key || "-");
+      html += '</div></div>';
+      var oss = d.oss || {};
+      var pipe = d.pipeline || {};
+      html += '<div class="card" style="margin-top:1rem"><div class="card-head"><h3>存储与并发</h3></div><div class="detail-grid">';
+      html += detailField("OSS Endpoint", oss.endpoint || "-");
+      html += detailField("OSS Bucket", oss.bucket || "-");
+      html += detailField("CDN 域名", oss.cdn_domain || "-");
+      html += detailField("每用户并发上限", pipe.max_per_user || "-");
+      html += '</div></div>';
+      el.innerHTML = html;
+    } catch (e) { /* 静默 */ }
+  }
+
+  async function loadPrompts() {
+    try {
+      var d = await api("/api/admin/ai/prompts");
+      var el = document.getElementById("promptsBody");
+      if (!d.available) { el.innerHTML = '<div class="hint-card"><p>Prompt 目录未找到</p></div>'; return; }
+      var prompts = d.prompts || {};
+      var keys = Object.keys(prompts);
+      if (!keys.length) { el.innerHTML = '<div class="hint-card"><p>暂无 Prompt 模板</p></div>'; return; }
+      el.innerHTML = keys.map(function (name) {
+        var p = prompts[name];
+        return '<div class="card" style="margin-bottom:1rem">'
+          + '<div class="card-head"><h3>' + esc(p.filename) + ' <small class="muted-cell">(' + p.lines + ' 行)</small></h3></div>'
+          + '<pre class="prompt-preview">' + esc(p.preview) + '...</pre>'
+          + '</div>';
+      }).join("");
+    } catch (e) { /* 静默 */ }
+  }
 
   /* ── 全选复选框（错误中心）── */
   document.addEventListener("change", function (e) {

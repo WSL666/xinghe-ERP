@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from config import FRONTEND_ROOT, get_settings
-from store import close_pool, ensure_default_admin, init_db, open_pool
+from store import close_pool, ensure_default_admin, init_db, init_default_pricing, open_pool
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -46,6 +46,7 @@ def _startup() -> None:
     open_pool()
     init_db()
     ensure_default_admin()
+    init_default_pricing()
     logger.info("admin-platform started on port %s", settings.admin_port)
 
 
@@ -77,6 +78,8 @@ from routers.users import router as users_router  # noqa: E402
 from routers.enterprises import router as enterprises_router  # noqa: E402
 from routers.tasks import router as tasks_router  # noqa: E402
 from routers.billing import router as billing_router  # noqa: E402
+from routers.ai import router as ai_router  # noqa: E402
+from routers.pricing import router as pricing_router  # noqa: E402
 from routers.monitoring import router as monitoring_router  # noqa: E402
 from routers.audit import router as audit_router  # noqa: E402
 
@@ -86,6 +89,8 @@ app.include_router(users_router)
 app.include_router(enterprises_router)
 app.include_router(tasks_router)
 app.include_router(billing_router)
+app.include_router(ai_router)
+app.include_router(pricing_router)
 app.include_router(monitoring_router)
 app.include_router(audit_router)
 

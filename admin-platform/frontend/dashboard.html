@@ -18,6 +18,8 @@
       <button class="nav-item" data-view="enterprises">企业管理</button>
       <button class="nav-item" data-view="tasks">任务监控</button>
       <button class="nav-item" data-view="billing">计费财务</button>
+      <button class="nav-item" data-view="pricing">定价配置</button>
+      <button class="nav-item" data-view="ai">AI 资源</button>
       <button class="nav-item" data-view="monitoring">监控中心</button>
       <button class="nav-item" data-view="audit">安全审计</button>
     </nav>
@@ -249,6 +251,54 @@
     </section>
 
     <!-- ═══ 安全审计 ═══ -->
+    <!-- ═══ 定价配置 ═══ -->
+    <section id="view-pricing" class="view-panel">
+      <div class="toolbar">
+        <input type="text" id="newPlatform" class="filter-select" placeholder="平台" style="max-width:100px">
+        <input type="text" id="newStep" class="filter-select" placeholder="步骤" style="max-width:100px">
+        <input type="number" id="newCost" class="filter-select" placeholder="金豆数" style="max-width:100px">
+        <button class="btn-primary" data-action="add-pricing">添加/更新</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>ID</th><th>平台</th><th>步骤</th><th>金豆数</th><th>状态</th><th>更新时间</th><th>操作</th></tr>
+          </thead>
+          <tbody id="pricingBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ═══ AI 资源 ═══ -->
+    <section id="view-ai" class="view-panel">
+      <div class="ai-tabs">
+        <button class="ai-tab active" data-ai-tab="keys">Key 池</button>
+        <button class="ai-tab" data-ai-tab="models">模型配置</button>
+        <button class="ai-tab" data-ai-tab="prompts">Prompt 模板</button>
+      </div>
+
+      <div id="aiTab-keys" class="ai-panel">
+        <div class="metric-grid" id="keyPoolMetrics">
+          <article class="metric-card"><span>Redis</span><strong id="kRedis">-</strong></article>
+          <article class="metric-card"><span>可用Key</span><strong id="kAvail">-</strong></article>
+          <article class="metric-card"><span>冷却中</span><strong id="kCool">-</strong></article>
+          <article class="metric-card"><span>失效</span><strong id="kFail">-</strong></article>
+        </div>
+        <div class="queue-toolbar">
+          <button class="btn-primary" data-action="refresh-keys">刷新</button>
+        </div>
+        <div id="keyPoolBody"></div>
+      </div>
+
+      <div id="aiTab-models" class="ai-panel" style="display:none">
+        <div id="modelConfigBody"></div>
+      </div>
+
+      <div id="aiTab-prompts" class="ai-panel" style="display:none">
+        <div id="promptsBody"></div>
+      </div>
+    </section>
+
     <!-- ═══ 监控中心 ═══ -->
     <section id="view-monitoring" class="view-panel">
       <div class="monitor-tabs">
