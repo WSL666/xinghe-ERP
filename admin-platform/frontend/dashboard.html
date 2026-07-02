@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>超级管理员系统 · 工作台</title>
-  <link rel="stylesheet" href="/assets/css/admin.css?v=admin02">
+  <link rel="stylesheet" href="/assets/css/admin.css?v=admin05merge">
 </head>
 <body class="app-shell">
   <aside class="sidebar">
@@ -271,32 +271,11 @@
 
     <!-- ═══ AI 资源 ═══ -->
     <section id="view-ai" class="view-panel">
-      <div class="ai-tabs">
-        <button class="ai-tab active" data-ai-tab="keys">Key 池</button>
-        <button class="ai-tab" data-ai-tab="models">模型配置</button>
-        <button class="ai-tab" data-ai-tab="prompts">Prompt 模板</button>
+      <div class="key-model-tabs">
+        <button class="key-model-tab active" data-key-tab="chat">视觉解析模型</button>
+        <button class="key-model-tab" data-key-tab="vibe">图片生成模型</button>
       </div>
-
-      <div id="aiTab-keys" class="ai-panel">
-        <div class="metric-grid" id="keyPoolMetrics">
-          <article class="metric-card"><span>Redis</span><strong id="kRedis">-</strong></article>
-          <article class="metric-card"><span>可用Key</span><strong id="kAvail">-</strong></article>
-          <article class="metric-card"><span>冷却中</span><strong id="kCool">-</strong></article>
-          <article class="metric-card"><span>失效</span><strong id="kFail">-</strong></article>
-        </div>
-        <div class="queue-toolbar">
-          <button class="btn-primary" data-action="refresh-keys">刷新</button>
-        </div>
-        <div id="keyPoolBody"></div>
-      </div>
-
-      <div id="aiTab-models" class="ai-panel" style="display:none">
-        <div id="modelConfigBody"></div>
-      </div>
-
-      <div id="aiTab-prompts" class="ai-panel" style="display:none">
-        <div id="promptsBody"></div>
-      </div>
+      <div id="keyModelPanel" class="key-model-panel"></div>
     </section>
 
     <!-- ═══ 监控中心 ═══ -->
@@ -408,6 +387,6 @@
     </div>
   </div>
 
-  <script src="/assets/js/app.js?v=admin02"></script>
+  <script src="/assets/js/app.js?v=admin05merge"></script>
 </body>
 </html>

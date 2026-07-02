@@ -458,3 +458,113 @@ body {
   font-size: 0.78rem;
   color: #8eb8ff;
 }
+
+/* ── Key 池粘贴框 ── */
+.key-add-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.key-add-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.key-paste-area {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.8rem;
+  color: var(--text);
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.key-paste-area:focus { border-color: var(--primary); }
+.key-paste-area::placeholder { color: var(--text-dim); font-size: 0.78rem; }
+
+/* ── Key 池模型子标签 ── */
+.key-model-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.key-model-tab {
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  padding: 0.7rem 1.4rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.key-model-tab:hover { color: var(--text); }
+.key-model-tab.active { color: #fff; border-bottom-color: var(--primary); }
+.key-model-panel { animation: fadeIn 0.15s; }
+
+/* ── 粘贴框标题 ── */
+.key-add-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-right: auto;
+}
+.key-add-header { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+
+/* ── 模型标识徽章 ── */
+.model-badge {
+  display: inline-block;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.model-badge.chat {
+  background: rgba(46, 150, 255, 0.2);
+  color: #9cc8ff;
+}
+.model-badge.vibe {
+  background: rgba(115, 66, 226, 0.25);
+  color: #c4b0ff;
+}
+
+/* ── 模型标题栏 ── */
+.model-header-bar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.model-big-badge {
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 0.4rem 1.2rem;
+  border-radius: var(--radius-sm);
+}
+.badge-chat {
+  background: rgba(46, 150, 255, 0.2);
+  color: #9cc8ff;
+  border: 1px solid rgba(46, 150, 255, 0.35);
+}
+.badge-vibe {
+  background: rgba(115, 66, 226, 0.25);
+  color: #c4b0ff;
+  border: 1px solid rgba(115, 66, 226, 0.4);
+}
+.model-total { font-size: 0.9rem; color: var(--text-muted); }
+
+/* ── 统计卡颜色 ── */
+.stat-ok { color: #4ade80; }
+.stat-warn { color: #fbbf24; }
+.stat-fail { color: #f87171; }

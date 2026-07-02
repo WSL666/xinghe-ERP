@@ -723,7 +723,7 @@
     if (e.target.dataset.billingTab) { switchBillingTab(e.target.dataset.billingTab); return; }
 
     /* ai tabs */
-    if (e.target.dataset.aiTab) { switchAITab(e.target.dataset.aiTab); return; }
+    if (e.target.dataset.keyTab) { switchKeyModelTab(e.target.dataset.keyTab); return; }
 
     /* pricing / ai actions */
     if (action === "add-pricing") { addPricing(); return; }
@@ -735,7 +735,11 @@
       } catch (err) { toast("删除失败: " + err.message); }
       return;
     }
-    if (action === "refresh-keys") { loadKeyPool(); toast("已刷新"); return; }
+    if (action === "refresh-keys") { loadKeyModel(); toast("已刷新"); return; }
+    if (action === "add-keys") { addKeys(); return; }
+    if (action === "del-key") { delKey(e.target.dataset.provider, e.target.dataset.key); return; }
+    if (action === "revive-key") { reviveKey(e.target.dataset.provider, e.target.dataset.key); return; }
+    if (action === "clear-failed") { clearFailed(e.target.dataset.provider); return; }
 
     /* monitoring tabs */
     if (e.target.dataset.monitorTab) { switchMonitorTab(e.target.dataset.monitorTab); return; }
@@ -876,126 +880,167 @@
      ══════════════════════════════════════ */
   var aiTab = "keys";
 
-  function switchAITab(tab) {
-    aiTab = tab;
-    document.querySelectorAll(".ai-tab").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.aiTab === tab);
+  var keyModelTab = "chat";
+
+  function switchKeyModelTab(tab) {
+    keyModelTab = tab;
+    document.querySelectorAll(".key-model-tab").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.keyTab === tab);
     });
-    document.querySelectorAll(".ai-panel").forEach(function (p) { p.style.display = "none"; });
-    var target = document.getElementById("aiTab-" + tab);
-    if (target) target.style.display = "";
+    loadKeyModel();
   }
 
-  async function loadAI() {
-    loadKeyPool();
-    loadModelConfig();
-    loadPrompts();
-  }
-
-  async function loadKeyPool() {
+  async function loadKeyModel() {
+    var el = document.getElementById("keyModelPanel");
+    if (!el) return;
     try {
-      var d = await api("/api/admin/ai/keys");
-      var el = document.getElementById("keyPoolBody");
-      var rEl = document.getElementById("kRedis");
+      var d = await api("/api/admin/ai/keys?provider=" + encodeURIComponent(keyModelTab));
+      var cfg = await api("/api/admin/ai/config");
       if (!d.connected) {
-        if (rEl) rEl.innerHTML = '<span class="tag tag-frozen">未连接</span>';
         el.innerHTML = '<div class="hint-card"><p>Key 池未连接: ' + esc(d.error || "") + '</p></div>';
         return;
       }
       var pools = d.pools || [];
-      var avail = 0, cool = 0, fail = 0;
-      pools.forEach(function (p) {
-        avail += (p.counts && p.counts.available) || 0;
-        cool += (p.counts && p.counts.cooling) || 0;
-        fail += (p.counts && p.counts.failed) || 0;
-      });
-      if (rEl) rEl.innerHTML = '<span class="tag tag-ok">已连接</span>';
-      document.getElementById("kAvail").textContent = avail;
-      document.getElementById("kCool").textContent = cool;
-      document.getElementById("kFail").textContent = fail;
+      var providers = d.providers || {};
+      var label = providers[keyModelTab] || keyModelTab;
+      var pool = pools.length ? pools[0] : { provider: keyModelTab, label: label, normal: [], failed: [], counts: {} };
 
-      el.innerHTML = pools.map(function (p) {
-        var normal = p.normal || [];
-        var failed = p.failed || [];
-        var html = '<div class="card" style="margin-bottom:1rem">'
-          + '<div class="card-head"><h3>' + esc(p.label) + ' (' + esc(p.provider) + ')</h3>'
-          + '<div class="stat-pills">'
-          + '<span class="pill green">可用 ' + ((p.counts && p.counts.available) || 0) + '</span>'
-          + '<span class="pill amber">冷却 ' + ((p.counts && p.counts.cooling) || 0) + '</span>'
-          + '<span class="pill red">失效 ' + ((p.counts && p.counts.failed) || 0) + '</span>'
-          + '</div></div>';
-        if (normal.length) {
-          html += '<table class="data-table"><thead><tr><th>Key(脱敏)</th><th>状态</th><th>添加时间</th><th>失败次数</th><th>失败原因</th></tr></thead><tbody>';
-          normal.forEach(function (k) {
-            var cls = k.status === "available" ? "tag-ok" : "tag-warn";
-            html += "<tr><td><code>" + esc(k.key) + "</code></td>"
-              + '<td><span class="tag ' + cls + '">' + esc(k.status) + "</span></td>"
-              + "<td>" + esc(k.added_at) + "</td>"
-              + "<td>" + (k.fail_count || 0) + "</td>"
-              + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td></tr>";
-          });
-          html += '</tbody></table>';
-        }
-        if (failed.length) {
-          html += '<h4 class="section-title-sm" style="color:#f0a0a0">失效 Key</h4>';
-          html += '<table class="data-table"><thead><tr><th>Key(脱敏)</th><th>失败原因</th><th>失效时间</th></tr></thead><tbody>';
-          failed.forEach(function (k) {
-            html += "<tr><td><code>" + esc(k.key) + "</code></td>"
-              + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td>"
-              + "<td>" + esc(k.fail_at) + "</td></tr>";
-          });
-          html += '</tbody></table>';
-        }
-        html += '</div>';
-        return html;
-      }).join("");
-    } catch (e) { toast("加载Key池失败: " + e.message); }
-  }
+      var avail = (pool.counts && pool.counts.available) || 0;
+      var cool = (pool.counts && pool.counts.cooling) || 0;
+      var fail = (pool.counts && pool.counts.failed) || 0;
+      var total = avail + cool + fail;
 
-  async function loadModelConfig() {
-    try {
-      var d = await api("/api/admin/ai/config");
-      var el = document.getElementById("modelConfigBody");
-      if (!d.available) { el.innerHTML = '<div class="hint-card"><p>.env 配置文件未找到</p></div>'; return; }
-      var html = '<div class="card"><div class="card-head"><h3>模型配置</h3></div><div class="detail-grid">';
-      var m = d.models || {};
-      html += detailField("Chat 模型", m.chat_model || "-");
-      html += detailField("Chat Base URL", m.chat_base_url || "-");
-      html += detailField("图片模型", m.image_model || "-");
-      html += detailField("图片尺寸", m.image_size || "-");
-      html += detailField("Vibe Base URL", m.vibe_base_url || "-");
-      var keys = d.keys || {};
-      html += detailField("Chat Key(脱敏)", keys.chat_api_key || "-");
-      html += detailField("Vibe Key(脱敏)", keys.vibe_api_key || "-");
-      html += '</div></div>';
-      var oss = d.oss || {};
-      var pipe = d.pipeline || {};
-      html += '<div class="card" style="margin-top:1rem"><div class="card-head"><h3>存储与并发</h3></div><div class="detail-grid">';
-      html += detailField("OSS Endpoint", oss.endpoint || "-");
-      html += detailField("OSS Bucket", oss.bucket || "-");
-      html += detailField("CDN 域名", oss.cdn_domain || "-");
-      html += detailField("每用户并发上限", pipe.max_per_user || "-");
-      html += '</div></div>';
+      // 模型标识
+      var badgeCls = keyModelTab === "chat" ? "badge-chat" : "badge-vibe";
+
+      var html = '<div class="model-header-bar"><span class="model-big-badge ' + badgeCls + '">' + esc(label) + '</span>'
+        + '<span class="model-total">共 ' + total + ' 个 Key</span></div>';
+
+      // 统计卡（放最上面，单独统计当前模型）
+      html += '<div class="metric-grid">'
+        + '<article class="metric-card"><span>可用 Key</span><strong class="stat-ok">' + avail + '</strong></article>'
+        + '<article class="metric-card"><span>冷却中</span><strong class="stat-warn">' + cool + '</strong></article>'
+        + '<article class="metric-card"><span>失效</span><strong class="stat-fail">' + fail + '</strong></article>'
+        + '<article class="metric-card"><span>总计</span><strong>' + total + '</strong></article>'
+        + '</div>';
+
+      // 模型配置（融合进来，不再单独 Tab）
+      if (cfg.available) {
+        var m = cfg.models || {};
+        var keys = cfg.keys || {};
+        var oss = cfg.oss || {};
+        var pipe = cfg.pipeline || {};
+        html += '<div class="card" style="margin-bottom:1rem"><div class="card-head"><h3>模型配置</h3></div><div class="detail-grid">';
+        if (keyModelTab === "chat") {
+          html += detailField("Chat 模型", m.chat_model || "-");
+          html += detailField("Base URL", m.chat_base_url || "-");
+          html += detailField("API Key(脱敏)", keys.chat_api_key || "-");
+        } else {
+          html += detailField("图片模型", m.image_model || "-");
+          html += detailField("图片尺寸", m.image_size || "-");
+          html += detailField("Base URL", m.vibe_base_url || "-");
+          html += detailField("API Key(脱敏)", keys.vibe_api_key || "-");
+        }
+        html += detailField("OSS Bucket", oss.bucket || "-");
+        html += detailField("每用户并发", pipe.max_per_user || "-");
+        html += '</div></div>';
+      }
+
+      // 粘贴框
+      html += '<div class="key-add-box">'
+        + '<div class="key-add-header">'
+        + '<span class="key-add-title">添加 Key 到「' + esc(label) + '」池</span>'
+        + '<button class="btn-primary" data-action="add-keys">添加到池</button>'
+        + '<button class="ghost-btn" data-action="refresh-keys">刷新</button>'
+        + '</div>'
+        + '<textarea id="keyPasteArea" class="key-paste-area" rows="4" placeholder="粘贴 ' + esc(label) + ' 的 Key，一行一个（支持批量粘贴）。粘贴后点上方添加到池即可直接入池。"></textarea>'
+        + '</div>';
+
+      var normal = pool.normal || [];
+      var failed = pool.failed || [];
+
+      // 正常 Key 表
+      if (normal.length) {
+        html += '<div class="card" style="margin-bottom:1rem"><div class="card-head"><h3>正常 Key（' + normal.length + '）</h3></div>';
+        html += '<div class="table-wrap"><table class="data-table"><thead><tr><th>模型</th><th>Key(脱敏)</th><th>状态</th><th>添加时间</th><th>失败次数</th><th>失败原因</th><th>操作</th></tr></thead><tbody>';
+        normal.forEach(function (k) {
+          var cls = k.status === "available" ? "tag-ok" : "tag-warn";
+          var enc = encodeURIComponent(k.full_key || k.key);
+          html += "<tr>"
+            + '<td><span class="model-badge ' + esc(keyModelTab) + '">' + esc(label) + "</span></td>"
+            + "<td><code>" + esc(k.key) + "</code></td>"
+            + '<td><span class="tag ' + cls + '">' + esc(k.status) + "</span></td>"
+            + "<td>" + esc(k.added_at) + "</td>"
+            + "<td>" + (k.fail_count || 0) + "</td>"
+            + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td>"
+            + '<td class="action-cell">'
+            + '<button class="mini-btn warn" data-action="del-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">删除</button>'
+            + (k.status !== "available" ? '<button class="mini-btn" data-action="revive-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">恢复</button>' : "")
+            + "</td></tr>";
+        });
+        html += '</tbody></table></div></div>';
+      }
+
+      // 失效 Key 表
+      if (failed.length) {
+        html += '<div class="card"><div class="card-head" style="display:flex;justify-content:space-between;align-items:center"><h3 style="color:#f0a0a0">失效 Key（' + failed.length + '）</h3>'
+          + '<button class="mini-btn warn" data-action="clear-failed" data-provider="' + esc(keyModelTab) + '">批量清除</button></div>';
+        html += '<div class="table-wrap"><table class="data-table"><thead><tr><th>模型</th><th>Key(脱敏)</th><th>失败原因</th><th>失效时间</th><th>操作</th></tr></thead><tbody>';
+        failed.forEach(function (k) {
+          var enc = encodeURIComponent(k.full_key || k.key);
+          html += "<tr>"
+            + '<td><span class="model-badge ' + esc(keyModelTab) + '">' + esc(label) + "</span></td>"
+            + "<td><code>" + esc(k.key) + "</code></td>"
+            + "<td>" + esc((k.fail_reason || "").slice(0, 40)) + "</td>"
+            + "<td>" + esc(k.fail_at) + "</td>"
+            + '<td class="action-cell"><button class="mini-btn" data-action="revive-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">恢复</button>'
+            + '<button class="mini-btn warn" data-action="del-key" data-provider="' + esc(keyModelTab) + '" data-key="' + enc + '">删除</button></td></tr>';
+        });
+        html += '</tbody></table></div></div>';
+      }
+
+      if (!normal.length && !failed.length) {
+        html += '<div class="hint-card"><p>该模型池暂无 Key，在上方粘贴框添加。</p></div>';
+      }
+
       el.innerHTML = html;
-    } catch (e) { /* 静默 */ }
+    } catch (e) { toast("加载失败: " + e.message); }
   }
 
-  async function loadPrompts() {
+  async function addKeys() {
+    var text = document.getElementById("keyPasteArea").value;
+    var keys = text.split(/[\n,\s]+/).filter(function (k) { return k.trim(); });
+    if (!keys.length) { toast("请先粘贴 Key"); return; }
     try {
-      var d = await api("/api/admin/ai/prompts");
-      var el = document.getElementById("promptsBody");
-      if (!d.available) { el.innerHTML = '<div class="hint-card"><p>Prompt 目录未找到</p></div>'; return; }
-      var prompts = d.prompts || {};
-      var keys = Object.keys(prompts);
-      if (!keys.length) { el.innerHTML = '<div class="hint-card"><p>暂无 Prompt 模板</p></div>'; return; }
-      el.innerHTML = keys.map(function (name) {
-        var p = prompts[name];
-        return '<div class="card" style="margin-bottom:1rem">'
-          + '<div class="card-head"><h3>' + esc(p.filename) + ' <small class="muted-cell">(' + p.lines + ' 行)</small></h3></div>'
-          + '<pre class="prompt-preview">' + esc(p.preview) + '...</pre>'
-          + '</div>';
-      }).join("");
-    } catch (e) { /* 静默 */ }
+      var d = await api("/api/admin/ai/keys/add", "POST", { provider: keyModelTab, keys: keys });
+      toast("添加 " + (d.added || 0) + " 个，重复 " + (d.duplicate || 0) + " 个");
+      document.getElementById("keyPasteArea").value = "";
+      loadKeyModel();
+    } catch (e) { toast("添加失败: " + e.message); }
+  }
+
+  async function delKey(provider, encKey) {
+    var key = decodeURIComponent(encKey);
+    try {
+      await api("/api/admin/ai/keys/remove", "POST", { provider: provider, key: key });
+      toast("已删除"); loadKeyModel();
+    } catch (e) { toast("删除失败: " + e.message); }
+  }
+
+  async function reviveKey(provider, encKey) {
+    var key = decodeURIComponent(encKey);
+    try {
+      await api("/api/admin/ai/keys/update", "POST", { provider: provider, key: key, status: "available" });
+      toast("已恢复"); loadKeyModel();
+    } catch (e) { toast("恢复失败: " + e.message); }
+  }
+
+  async function clearFailed(provider) {
+    if (!confirm("确认清除 " + provider + " 池的全部失效 Key？")) return;
+    try {
+      var d = await api("/api/admin/ai/keys/bulk-remove", "POST", { provider: provider, state: "failed" });
+      toast("已清除 " + (d.removed || 0) + " 个失效 Key"); loadKeyModel();
+    } catch (e) { toast("清除失败: " + e.message); }
   }
 
   /* ── 全选复选框（错误中心）── */

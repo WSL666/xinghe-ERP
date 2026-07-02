@@ -115,9 +115,8 @@ app.include_router(common_router)
 from platforms.temu.router import router as temu_router  # noqa: E402
 app.include_router(temu_router)
 
-# API Key 池内网管理面板(/admin/keys,仅本机 + token)
-from api_key_pool import router as admin_keys_router  # noqa: E402
-app.include_router(admin_keys_router)
+# API Key 池管理已迁移到超级管理员系统(admin-platform)的 AI 资源模块
+# pool.py 引擎仍由流水线使用, 仅移除了旧的 /admin/keys HTML 面板入口
 
 # 充值/金豆(/api/billing/*)
 from billing import router as billing_router  # noqa: E402
