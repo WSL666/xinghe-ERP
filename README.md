@@ -11,22 +11,52 @@
 - **AI**：DeepSeek（标题翻译）、自建兼容 OpenAI 的 Chat/Vision 端点（视觉解析）、VibeLearning（图生图）
 - **反代/证书**：Caddy（自动 ACME，DNS-01 via alidns）
 - **前端**：纯静态 HTML/CSS/JS，由 FastAPI 的 `StaticFiles` 直接托管
-- **进程管理**：systemd（`product-pipeline.service` web + `product-pipeline-worker.service` worker，均 `Restart=always`）
+- **进程管理**：systemd（`product-pipeline.service` web + `product-pipeline-worker.service` worker + `admin-platform.service` 超管，均 `Restart=always` 开机自启）
 - **采集端**：Chrome 扩展（`collector/temu-collector/`，Manifest V3，v2.0）
+
+## 三级权限体系
+
+本系统采用三级权限架构，三个系统**物理隔离**，登录态完全不共用：
+
+| 级别 | 角色 | 系统 | 入口地址 | 数据可见范围 |
+|------|------|------|---------|------------|
+| **1级** | 超级管理员 | `admin-platform/` | `:8444`（独立端口） | **全平台所有人** |
+| **2级** | 企业管理员 | `admin-enterprise/`（占位预留） | 待定 | 仅本企业 |
+| **3级** | 普通用户 | `backend/` + `frontend/` | `:8443` | 仅自己 |
+
+- 1级超管能看到所有用户、企业、任务、计费，是唯一的全局管控入口
+- 2级企业管理员只能管理本企业成员，看不到其他企业
+- 3级用户只能看到自己的数据
+- 三级登录态完全隔离：超管 cookie `ppe_admin_session`，用户端独立，互不干扰
+
+详见各目录 README：`admin-platform/README.md`、`admin-enterprise/README.md`。
 
 ## 运行拓扑（生产实际架构）
 
+本系统采用**三级权限 + 双入口**架构，用户端与超管后台物理隔离：
+
 ```
+─── 用户/企业端 (3级/2级) ────────────────────────────────────────────────
 浏览器/插件 ──HTTPS:8443──▶ Caddy ──HTTP──▶ Uvicorn web(127.0.0.1:6688) ──▶ PostgreSQL(:5433)
                                                    │
                                                    └──写入──▶ Redis 队列(仅 Unix socket) ◀──BRPOP──┐
                                                                                                     │
                                      worker.py 独立进程(N 个线程) ─────────────────────────────────┘
+
+─── 超级管理员后台 (1级, 独立端口) ──────────────────────────────────────
+超管浏览器 ──HTTPS:8444──▶ Caddy ──HTTP──▶ admin-platform(127.0.0.1:6689) ──▶ PostgreSQL(:5433)
+                                                         │
+                                                         └──▶ Redis(AI Key 池) + 审计写入
 ```
 
-- **域名**：`https://wangshilin888.com:8443`（Caddy 反代到 `127.0.0.1:6688`）
-- **应用监听**：`127.0.0.1:6688`，HTTP（TLS 由 Caddy 终止，**uvicorn 不要加 `--ssl-*`**）
-- **数据库**：PostgreSQL `127.0.0.1:5433`（容器内 5432）
+| 入口 | 地址 | 对应服务 | 端口 |
+|------|------|---------|------|
+| **用户/企业端** | `https://wangshilin888.com:8443` | `product-pipeline.service` | 6688 |
+| **超级管理员后台** | `https://wangshilin888.com:8444` | `admin-platform.service` | 6689 |
+
+- **域名**：Caddy 反代，TLS 由 Caddy 终止（**uvicorn 不要加 `--ssl-*`**）
+- **应用监听**：用户端 `127.0.0.1:6688`，超管端 `127.0.0.1:6689`，均仅本机
+- **数据库**：PostgreSQL `127.0.0.1:5433`（容器内 5432），两个应用共用
 - **Redis：只走 Unix socket，不监听任何 TCP 端口**（详见下方「Redis Unix socket 设计」）
 - **进程拆分（web 与 worker 分离）**：
   - **web 进程**：`product-pipeline.service`（uvicorn 单进程，只接 HTTP / 入队，`--workers` 不需要再设）
@@ -141,7 +171,8 @@ echo "=== Redis socket ==="
 ls -l /var/run/product-pipeline/redis.sock 2>/dev/null && redis-cli -s /var/run/product-pipeline/redis.sock ping || echo "(socket 不存在,执行下方启动即可)"
 ```
 
-正常情况应该看到：Docker 两个容器 `running`，两个 service `active`，Caddy `active`，Redis `PONG`。
+正常情况应该看到：Docker 两个容器 `running`，四个 service `active`，Redis `PONG`。
+四个 service = `product-pipeline` + `product-pipeline-worker` + `admin-platform` + `caddy`。
 如果有 `inactive` 或连不上，继续下一步启动。
 
 ### 第 1 步：启动基础设施（Docker：Redis + PostgreSQL）
@@ -156,18 +187,24 @@ docker compose ps             # 两个容器都应 Up
 redis-cli -s /var/run/product-pipeline/redis.sock ping    # 应 PONG
 ```
 
-### 第 2 步：启动应用（web + worker）
+### 第 2 步：启动应用（web + worker + 超管）
 
 ```bash
 # web(HTTP 接口 + 入队)
 systemctl start product-pipeline.service
 # worker(消费队列跑流水线)
 systemctl start product-pipeline-worker.service
+# 超管后台(独立进程, 6689)
+systemctl start admin-platform.service
 
-# 验证两个都在跑
+# 验证三个都在跑
 systemctl is-active product-pipeline.service          # active
 systemctl is-active product-pipeline-worker.service   # active
+systemctl is-active admin-platform.service            # active
 ```
+
+> **懒人一键命令**：装了 `start-all.sh` / `restart-all.sh` / `stop-all.sh`（见 `/usr/local/bin/`），
+> 一条命令管全部服务（web + worker + 超管 + caddy）。
 
 ### 第 3 步：验证（确认全部打通）
 
@@ -176,9 +213,13 @@ systemctl is-active product-pipeline-worker.service   # active
 curl http://127.0.0.1:6688/api/health
 # 应返回 {"ok":true,"status":"healthy"}
 
-# 经域名 + Caddy 访问(外部)
+# 经域名 + Caddy 访问(外部, 用户端)
 curl -sk https://wangshilin888.com:8443/api/health
 # 应返回 {"ok":true,"status":"healthy"}
+
+# 超管后台健康检查(外部)
+curl -sk https://wangshilin888.com:8444/api/health
+# 应返回 {"ok":true,"status":"healthy","service":"admin-platform"}
 
 # worker 启动日志(确认 32 线程)
 tail -5 /var/log/product-pipeline-worker.log
@@ -193,19 +234,29 @@ redis-cli -s /var/run/product-pipeline/redis.sock llen pipeline:queue
 ### 一键停止
 
 ```bash
+# 方式A: 一条命令停全部应用服务(web + worker + 超管 + caddy)
+stop-all.sh
+
+# 方式B: 手动逐个停
 systemctl stop product-pipeline-worker.service                   # 先停 worker(优雅收尾任务)
 systemctl stop product-pipeline.service                          # 再停 web
+systemctl stop admin-platform.service                           # 停超管后台
 docker stop product-pipeline-redis product-pipeline-postgres     # 停 Redis + Postgres
 ```
 
 ### 改了代码或 .env 后重启
 
-> **web 和 worker 是两个独立进程**，改了代码或 `.env` 后**两个都要重启**，否则没重启的还跑旧代码。
+> **web、worker、超管是三个独立进程**，改了哪个就重启哪个，否则没重启的还跑旧代码。
 
 ```bash
 systemctl restart product-pipeline.service          # web
 systemctl restart product-pipeline-worker.service   # worker(改 pipeline/队列逻辑时必须重启)
+systemctl restart admin-platform.service            # 超管(改 admin-platform 代码时重启)
 tail -3 /var/log/product-pipeline-worker.log        # 看到 "worker started" = 正常
+tail -3 /var/log/admin-platform.log                 # 超管日志
+
+# 或懒人方式: 全部重启
+restart-all.sh
 ```
 
 ### 首次部署（一次性，新机器才需要）
@@ -289,7 +340,7 @@ PIPELINE_EMBED_WORKERS=1 uvicorn main:app --host 127.0.0.1 --port 6688
 | `VIBE_*` / `IMAGE_MODEL` / `IMAGE_SIZE` | 图生图模型配置 | - |
 | `OSS_*` | 阿里云 OSS（key/endpoint/bucket/folder/cdn） | - |
 | `SMS_*` | 短信验证码（`console` 打印 / `aliyun` 阿里云） | `console` |
-| `ADMIN_TOKEN` | 管理员令牌（充值 API Key 池面板 + 金豆充值接口） | - |
+| `ADMIN_TOKEN` | 金豆充值接口的管理员令牌（`X-Admin-Token` 请求头校验） | - |
 | `WORKER_PID_FILE` | worker 单例锁 PID 文件路径（默认 `/tmp/product-pipeline/worker.pid`） | `/tmp/...` |
 
 > 改了 `.env` 必须 `systemctl restart product-pipeline.service` 才生效。
@@ -336,11 +387,11 @@ backend/
 ├── sms.py               # 注册验证码(txt 文件白名单 / 阿里云短信)
 ├── sms_codes.txt        # 注册验证码白名单(每行一个, 用过自动删除; 测试阶段)
 ├── oss_client.py        # OSS 客户端封装
-├── api_key_pool/        # API Key 池(Redis 三态轮换 + 内网管理面板),见 api_key_pool/README.md
-│   ├── pool.py         #   key 池核心(可用/冷却/失效, LRU 轮换, Redis 共享)
-│   ├── admin.py        #   内网管理面板(左右布局 + 双表格, /admin/keys)
-│   └── run.py          #   面板独立测试启动器(端口 7799, 内存隔离)
+├── api_key_pool/        # API Key 池(Redis 三态轮换引擎),见 api_key_pool/README.md
+│   └── pool.py         #   key 池核心(可用/冷却/失效, LRU 轮换, Redis 共享)
 └── requirements.txt
+admin-platform/         # 超级管理员系统(1级),独立端口 6689,见 admin-platform/README.md
+admin-enterprise/       # 企业管理后台(2级,占位预留),见 admin-enterprise/README.md
 frontend/                # 静态前端(dashboard 工作台),由 FastAPI StaticFiles 托管
 collector/temu-collector/ # Chrome 采集插件(v2.0)
 docker/                  # docker-compose 用到的 Postgres 初始化脚本
