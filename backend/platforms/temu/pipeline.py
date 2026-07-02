@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 from typing import Any
@@ -44,7 +45,7 @@ def _step2_translate(env: dict[str, str], product: Product) -> tuple[str, str]:
     log("=" * 50)
     log(">>> TEMU STEP2: 标题翻译")
     titles = [product.chinese_title]
-    titles_json = __import__("json").dumps(titles, ensure_ascii=False)
+    titles_json = json.dumps(titles, ensure_ascii=False)
     full_prompt = f"{translate_prompt.PROMPT}\n\nInput:\n{titles_json}"
 
     raw_text = call_text_llm(
@@ -429,13 +430,20 @@ def execute(
         msg = "vision failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
     store.update_finished_at(user_id, import_id)
-    # 全部成功 → 扣 10 金豆(允许欠到-10, 失败不扣)
+    # 按实际成功张数按比例扣费(全成功扣 10, 部分成功少扣, 全失败不扣)。
+    # 一个任务的全额 = 10 金豆, 单张单价 = 10 / 本任务应出图总数。
     if done:
         try:
             from billing.store import charge_beans
-            result = charge_beans(user_id, 10, "TEMU采集箱", import_id=import_id)
+            total_images = ok_count + fail_count
+            if total_images > 0:
+                amount = max(1, round(10 * ok_count / total_images))
+            else:
+                amount = 10
+            result = charge_beans(user_id, amount, "TEMU采集箱", import_id=import_id)
             if result:
-                log(f"金豆扣除成功: user={user_id} import={import_id} 余额={result['balance_after']}")
+                log(f"金豆扣除成功: user={user_id} import={import_id} "
+                    f"成功{ok_count}/{total_images}张 扣{amount} 余额={result['balance_after']}")
             else:
                 log(f"[WARN] 金豆扣费失败(余额不足): user={user_id} import={import_id}")
         except Exception as exc:

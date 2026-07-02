@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 
 import pipeline_queue
@@ -27,7 +27,7 @@ from store import (
     close_pool, delete_import, get_import, get_or_create_dev_user,
     get_raw_import, get_user_by_api_key, get_user_by_id, init_db, mark_imports_exported,
     open_pool, unmark_imports_exported,
-    insert_import, list_imports, update_status,
+    insert_import, list_imports, update_status, edit_ai_image,
 )
 
 from platforms.temu.adapter import from_db_row, parse_product
@@ -106,15 +106,14 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
     # 入库只存采集端原始 propName/propValue/refPid, 避免存快照导致换库后老数据失效。
 
     # 金豆余额检查: 允许欠到-10, 余额 <= -10 时拒绝(防止无限欠费)
+    from billing.store import get_beans
     try:
-        from billing.store import get_beans
         beans = get_beans(int(user["id"]))
-        if beans <= -10:
-            raise _err("金豆不足，请充值后再试", 402)
-    except _err:
-        raise
     except Exception:
-        pass  # billing 查询失败不阻断主流程
+        # billing 查询失败不阻断主流程(放行, 宁可后扣费也不误伤)
+        beans = 0
+    if beans <= -10:
+        raise _err("金豆不足，请充值后再试", 402)
 
     payload = {**payload, "platform": "temu"}
     import_id = insert_import(int(user["id"]), payload)
@@ -132,7 +131,10 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
 async def temu_list_imports(platform: str | None = None, request: Request = None,
                             user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
     exported = (request.query_params.get("exported") in {"1", "true", "yes"}) if request else False
-    return _ok(imports=list_imports(int(user["id"]), platform, exported))
+    error_box = (request.query_params.get("error") in {"1", "true", "yes"}) if request else False
+    # 错误箱跨平台汇总, 不按 platform 过滤
+    pf = None if error_box else platform
+    return _ok(imports=list_imports(int(user["id"]), pf, exported, error_box))
 
 
 @router.get("/imports/{import_id}")
@@ -150,17 +152,17 @@ async def temu_get_import_by_ref(ref_code: str, request: Request,
                                  user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
     """按 ref_code(如 aB3xK9mP2) 查询单条。
 
-    ref_code = 用户uid + 序号。后端拆出 uid 和 seq, 定位到唯一一条。
+    ref_code = 用户uid + 序号。后端按固定长度拆出 uid 和 seq, 定位到唯一一条。
+    uid 固定 8 位(见 store.generate_uid), 但其字符集含数字, 不能用正则贪心
+    切分末尾数字(会把 uid 末尾的数字误归给 seq, 甚至越权定位到别的用户)。
     """
     ref_code = (ref_code or "").strip()
     if not ref_code:
         raise _err("ref_code 不能为空", 400)
-    # 拆分: uid = 字母部分, seq = 末尾数字部分
-    import re
-    m = re.match(r"^(.+?)(\d+)$", ref_code)
-    if not m:
+    # uid 固定 8 位, 其后才是序号
+    if len(ref_code) <= 8 or not ref_code[8:].isdigit():
         raise _err("ref_code 格式错误", 400)
-    uid_part, seq_part = m.group(1), int(m.group(2))
+    uid_part, seq_part = ref_code[:8], int(ref_code[8:])
     target_user = get_user_by_uid(uid_part)
     if not target_user:
         raise _err("用户ID不存在", 404)
@@ -292,7 +294,8 @@ async def temu_export(import_id: int,
     created_str = str(raw_import.get("createdAt") or "")
     link_ts = ""
     try:
-        link_ts = f"{datetime.strptime(created_str, '%Y-%m-%d %H:%M:%S'):%Y%-m%-d%H%M}".replace("%-", "")
+        _d = datetime.strptime(created_str, '%Y-%m-%d %H:%M:%S')
+        link_ts = f"{_d.year}{_d.month}{_d.day}{_d:%H%M}"
     except ValueError:
         pass
     if not link_ts:
@@ -332,6 +335,68 @@ async def temu_unexport(import_id: int,
     return _ok(import_id=import_id, exported=False)
 
 
+@router.post("/imports/{import_id}/restore")
+async def temu_restore(import_id: int,
+                       user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """把错误箱里的记录移回收采箱: 仅重置状态为 pending(不自动重跑)。
+
+    用户在采集箱里可再手动点「整体生成」触发流水线。
+    """
+    uid = int(user["id"])
+    if not get_import(uid, import_id):
+        raise _err(f"import {import_id} not found", 404)
+    update_status(uid, import_id, "pending", "restored from error box")
+    return _ok(import_id=import_id, status="pending")
+
+
+@router.post("/imports/{import_id}/ai-image/promote")
+async def temu_ai_image_promote(import_id: int, payload: dict[str, Any],
+                                user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """把一张原图提升为成品图(追加进 generated_json, 标记 manual_original)。"""
+    uid = int(user["id"])
+    if not get_import(uid, import_id):
+        raise _err(f"import {import_id} not found", 404)
+    source_url = str(payload.get("source_url", "") or "").strip()
+    if not source_url:
+        raise _err("source_url is required", 400)
+    generated = edit_ai_image(uid, import_id, "promote", source_url=source_url)
+    if generated is None:
+        raise _err("promote failed", 400)
+    return _ok(import_id=import_id, generated=generated)
+
+
+@router.post("/imports/{import_id}/ai-image/delete")
+async def temu_ai_image_delete(import_id: int, payload: dict[str, Any],
+                               user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """软删除一张 AI 成品图(置 deleted=true)。"""
+    uid = int(user["id"])
+    if not get_import(uid, import_id):
+        raise _err(f"import {import_id} not found", 404)
+    image_type = str(payload.get("image_type", "") or "").strip()
+    if not image_type:
+        raise _err("image_type is required", 400)
+    generated = edit_ai_image(uid, import_id, "delete", image_type=image_type)
+    if generated is None:
+        raise _err("image not found", 404)
+    return _ok(import_id=import_id, generated=generated)
+
+
+@router.post("/imports/{import_id}/ai-image/restore")
+async def temu_ai_image_restore(import_id: int, payload: dict[str, Any],
+                                user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """还原一张已软删的 AI 成品图(清 deleted)。"""
+    uid = int(user["id"])
+    if not get_import(uid, import_id):
+        raise _err(f"import {import_id} not found", 404)
+    image_type = str(payload.get("image_type", "") or "").strip()
+    if not image_type:
+        raise _err("image_type is required", 400)
+    generated = edit_ai_image(uid, import_id, "restore", image_type=image_type)
+    if generated is None:
+        raise _err("image not found", 404)
+    return _ok(import_id=import_id, generated=generated)
+
+
 @router.post("/imports/{import_id}/generate")
 async def temu_generate(import_id: int,
                         user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
@@ -345,3 +410,63 @@ async def temu_generate(import_id: int,
 @router.get("/health")
 async def temu_health() -> dict[str, Any]:
     return _ok(status="healthy")
+
+
+def _ensure_plugin_zip() -> Path:
+    """确保采集插件 zip 已打包好(进程级缓存)。
+
+    第一次调用时从 collector/temu-collector/ 源码目录打包成 zip 并缓存,
+    后续请求直接返回该缓存文件。点击下载时只做静态文件发送, 不再每次打包。
+    插件源码有更新时, 重启服务即重新打包, 无需手动 repack。
+    """
+    import io
+    import zipfile as zf
+    from config import APP_ROOT
+
+    cached = getattr(_ensure_plugin_zip, "_path", None)
+    if cached and cached.is_file():
+        return cached
+
+    collector_dir = APP_ROOT / "collector" / "temu-collector"
+    if not collector_dir.is_dir():
+        raise _err("采集插件目录不存在", 404)
+
+    zip_path = collector_dir.parent / "temu-collector.zip"
+    buf = io.BytesIO()
+    with zf.ZipFile(buf, "w", zf.ZIP_DEFLATED) as zipf:
+        for file_path in collector_dir.rglob("*"):
+            if not file_path.is_file():
+                continue
+            # zip 内用相对路径, 保持扁平结构(Chrome 加载时直接指向文件夹)
+            arcname = file_path.relative_to(collector_dir)
+            zipf.write(file_path, arcname)
+    zip_path.write_bytes(buf.getvalue())
+    _ensure_plugin_zip._path = zip_path
+    return zip_path
+
+
+@router.get(
+    "/plugin/download",
+    response_class=FileResponse,
+)
+async def temu_plugin_download(user: dict[str, Any] = Depends(_current_user)) -> StreamingResponse:
+    """发送采集插件 zip 供用户下载。
+
+    zip 由 _ensure_plugin_zip() 在首次请求时打包一次并缓存为静态文件,
+    此后每次下载只是发送该文件, 不再重复打包。既保证下载瞬间完成,
+    又无需在部署时手动同步 zip 文件。
+    """
+    zip_path = _ensure_plugin_zip()
+    if not zip_path:
+        raise _err("采集插件目录不存在", 404)
+
+    filename = "temu-collector.zip"
+    safe = filename.encode("ascii", "ignore").decode("ascii") or "plugin.zip"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8''{filename}',
+    }
+    return FileResponse(
+        path=str(zip_path),
+        media_type="application/zip",
+        headers=headers,
+    )

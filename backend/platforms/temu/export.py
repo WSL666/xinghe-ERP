@@ -97,7 +97,12 @@ def _build_sku_rows(raw_import: dict[str, Any], cn_title: str, en_title: str,
     pack_list = product_data.get("packList", []) or []
     pack_list_json = json.dumps(pack_list, ensure_ascii=False, separators=(",", ":")) if pack_list else ""
 
-    generated_urls = [g.get("generated_image", "") for g in generated if g.get("generated_image")]
+    # 过滤掉软删除(deleted=true)和生图失败(error)的项; manual_original 原图转成品保留。
+    active_generated = [
+        g for g in generated
+        if g.get("generated_image") and not g.get("deleted") and not g.get("error")
+    ]
+    generated_urls = [g.get("generated_image", "") for g in active_generated]
     gen_str = "\n".join(generated_urls)
     first_generated = generated_urls[0] if generated_urls else ""
 

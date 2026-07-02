@@ -289,6 +289,8 @@ PIPELINE_EMBED_WORKERS=1 uvicorn main:app --host 127.0.0.1 --port 6688
 | `VIBE_*` / `IMAGE_MODEL` / `IMAGE_SIZE` | 图生图模型配置 | - |
 | `OSS_*` | 阿里云 OSS（key/endpoint/bucket/folder/cdn） | - |
 | `SMS_*` | 短信验证码（`console` 打印 / `aliyun` 阿里云） | `console` |
+| `ADMIN_TOKEN` | 管理员令牌（充值 API Key 池面板 + 金豆充值接口） | - |
+| `WORKER_PID_FILE` | worker 单例锁 PID 文件路径（默认 `/tmp/product-pipeline/worker.pid`） | `/tmp/...` |
 
 > 改了 `.env` 必须 `systemctl restart product-pipeline.service` 才生效。
 
@@ -331,7 +333,8 @@ backend/
 │       └── prompts/     #     translate / vision prompt 模板
 ├── models/              # 数据模型(Product、to_pipeline_input)
 ├── security.py          # 密码哈希、session token、API Key
-├── sms.py               # 短信验证码(console / 阿里云)
+├── sms.py               # 注册验证码(txt 文件白名单 / 阿里云短信)
+├── sms_codes.txt        # 注册验证码白名单(每行一个, 用过自动删除; 测试阶段)
 ├── oss_client.py        # OSS 客户端封装
 ├── api_key_pool/        # API Key 池(Redis 三态轮换 + 内网管理面板),见 api_key_pool/README.md
 │   ├── pool.py         #   key 池核心(可用/冷却/失效, LRU 轮换, Redis 共享)
@@ -367,17 +370,17 @@ docker-compose.yml       # PostgreSQL + Redis 基础设施
 - **Session cookie**：登录后写 `ppe_session`（`secure` 由 `APP_ENV` 控制）
 - **Bearer API Key**：插件走 `Authorization: Bearer <key>`（`_plugin_user` 校验）
 - **API Key 管理**：注册时自动生成，格式 = 用户 UID + 8 位随机（如 `aB3xK9mPx7Q2mN8v`），**永久固定、不可重置**。网站「设置 → 插件 API 密钥」查看（眼睛显隐 + 复制）
-- **注册**：手机号 + 密码 + 验证码 `TK` + 4 位数字（联系管理员获取口令），无需短信
-- **登录**：手机号 + 密码 + 验证码 `4305`
+- **注册**：手机号 + 密码 + 验证码。验证码写在 `backend/sms_codes.txt`（每行一个，联系管理员获取），用过后自动删除，**不在文件里的验证码无法注册**。开通真实短信后切回 Redis 校验（见 `sms.py:verify_code`）
+- **登录**：手机号 + 密码（无需验证码）
 - **开发账号**：`APP_ENV != production` 时自动创建 `admin / 123456`
 - SMS 验证：`SMS_PROVIDER=console` 打印，或 `aliyun` 走阿里云短信
 
 ### 金豆计费
 
 - 新用户注册送 **100 金豆**
-- 每条链接全流程成功（step2 翻译 + step3 视觉 + step4 生成）扣 **10 金豆**，失败不扣
+- 流水线全部成功（step2 翻译 + step3 视觉 + step4 生成）扣费，**按实际成功图片数比例计费**（全额 10 金豆，单张单价 = 10 / 本任务应出图总数，最少扣 1），失败不扣
 - 允许欠费到 **-10**，欠到 -10 后禁止新建任务
-- 钱包面板：金豆余额、充值、账单明细（含链接 ID 列，支持复制）
+- 钱包面板：金豆余额、账单明细（含链接 ID 列，支持复制）；充值由管理员通过 `POST /api/billing/recharge` 完成，需在请求头带 `X-Admin-Token`（值 = `ADMIN_TOKEN`）
 
 ### 链接编号（ref_code）
 

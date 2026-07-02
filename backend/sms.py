@@ -16,6 +16,7 @@ import base64
 import hashlib
 import hmac
 import logging
+import os
 import secrets
 import time
 import urllib.parse
@@ -135,16 +136,75 @@ def send_code(raw_account: str) -> dict[str, Any]:
 def verify_code(raw_account: str, code: str) -> bool:
     """Validate the code for the account.
 
-    测试阶段: 短信尚未开通, 用共享注册口令代替。
-    格式必须为 "TK" + 4 位数字(如 TK1234), TK 必须大写。
-    开通短信后, 把下面的口令校验改回 Redis-backed 校验(见文件末注释)。
+    测试阶段: 短信尚未开通, 改为"文件验证码白名单"方案。
+    验证码写在 backend/sms_codes.txt 里(每行一个), 用过后自动从文件删除。
+    任何不在这个文件里的验证码都无法注册(防止随意输入)。
+
+    文件格式:
+      - 每行一个验证码(任意非空字符串, 建议 6 位数字)
+      - 以 # 开头的行是注释, 不参与校验, 也不会被删除
+      - 空行被忽略
+      - 验证码区分大小写, 首尾空格自动去掉
+
+    并发安全: 用 fcntl 文件锁串行化"读-匹配-删行", 避免多 worker/多进程
+    同时读到同一行导致一个验证码被多次使用。
+
+    开通正式短信后, 切回 Redis-backed 校验(见函数末注释)。
     """
     if not code:
         return False
-    import re
-    return bool(re.fullmatch(r"TK\d{4}", code.strip()))
+    submitted = code.strip()
+    if not submitted:
+        return False
 
-    # --- 开通短信后恢复为真正的 Redis-backed 验证 ---
+    from pathlib import Path
+    import fcntl
+
+    codes_path = Path(__file__).resolve().parent / "sms_codes.txt"
+    if not codes_path.exists():
+        logger.warning("sms_codes.txt not found; registration blocked")
+        return False
+
+    # 以读写方式打开(文件锁需要同一个 fd 才能锁定 + 回写)
+    fd = open(codes_path, "r+", encoding="utf-8")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        remaining = []
+        matched = False
+        for raw in fd:
+            line = raw.strip()
+            # 跳过注释行和空行(原样保留, 不删除)
+            if not line or line.startswith("#"):
+                remaining.append(raw)
+                continue
+            # 命中: 不写回(实现"用完即删"), 用常量时间比较防计时侧信道
+            if not matched and hmac.compare_digest(line, submitted):
+                matched = True
+                logger.info("sms code consumed from file (length=%d)", len(line))
+                continue
+            remaining.append(raw)
+        # 没有任何验证码被消费 -> 文件内容未变, 直接返回 False
+        if not matched:
+            return False
+        # 原子重写: 截断 + 回写剩余行
+        fd.seek(0)
+        fd.truncate()
+        fd.writelines(remaining)
+        fd.flush()
+        os.fsync(fd.fileno())
+        return True
+    except OSError as exc:
+        logger.error("verify_code file lock/write failed: %s", exc)
+        return False
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        fd.close()
+
+
+    # --- 开通正式短信后恢复为 Redis-backed 校验(删掉上面的文件方案) ---
     # account = prepare_account(raw_account)
     # client = _client()
     # stored = client.get(_code_key(account))

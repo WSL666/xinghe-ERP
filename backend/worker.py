@@ -30,6 +30,7 @@ import os
 import signal
 import sys
 import time
+import tempfile
 
 import pipeline_queue
 from orchestrator import worker_handler
@@ -48,7 +49,12 @@ logger = logging.getLogger("worker")
 
 # 全局只允许一个 worker 进程消费队列(PID 文件锁)。
 # 防止运维事故(手动 python worker.py + systemd 各起一个)导致两个进程抢同一队列。
-_PID_FILE = "/var/run/product-pipeline/worker.pid"
+# PID 文件路径可通过环境变量 WORKER_PID_FILE 覆盖(默认放 /tmp, 普通用户可写)。
+_DEFAULT_PID_DIR = os.path.join(tempfile.gettempdir(), "product-pipeline")
+_PID_FILE = os.environ.get(
+    "WORKER_PID_FILE",
+    os.path.join(_DEFAULT_PID_DIR, "worker.pid"),
+)
 _pid_lock_fd = None
 
 

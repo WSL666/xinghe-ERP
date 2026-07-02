@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>星禾电商内容生成平台 · 工作台</title>
+  <title>通快电商内容生成平台 · 工作台</title>
   <link rel="icon" href="/frontend/images/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" sizes="32x32" href="/frontend/images/favicon-32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/frontend/images/favicon-16.png">
@@ -14,7 +14,7 @@
   <main id="appView" class="app-shell">
     <aside class="sidebar">
       <div class="brand">
-        <span class="brand-logo">PP</span>
+        <img class="brand-logo" src="/frontend/images/image.png" alt="通快">
         <div>
          <strong>Product ERP</strong>
           <small>AI Listing 管线</small>
@@ -32,17 +32,8 @@
             <button class="nav-item nav-sub-item" data-view="products" type="button">TEMU采集箱</button>
             <button class="nav-item nav-sub-item" data-view="box1688" type="button">1688采集箱</button>
             <button class="nav-item nav-sub-item" data-view="boxOzon" type="button">OZON采集箱</button>
-          </div>
-        </div>
-
-        <div class="nav-group" id="exportedNavGroup">
-          <button class="nav-item nav-group-toggle" data-action="toggle-nav" type="button">
-            <span>已导出</span>
-          </button>
-          <div class="nav-sub">
-            <button class="nav-item nav-sub-item" data-view="exportedTemu" type="button">TEMU已导出</button>
-            <button class="nav-item nav-sub-item" data-view="exported1688" type="button">1688已导出</button>
-            <button class="nav-item nav-sub-item" data-view="exportedOzon" type="button">OZON已导出</button>
+            <button class="nav-item nav-sub-item" data-view="exportedAll" type="button">已导出</button>
+            <button class="nav-item nav-sub-item" data-view="errorBox" type="button">错误汇总</button>
           </div>
         </div>
 
@@ -152,17 +143,19 @@
                <div class="batch-menu" id="batchMenu" hidden>
                  <button type="button" data-batch="select-all">全选 / 取消全选</button>
                  <button type="button" data-batch="export" id="batchExportBtn">批量导出 (已完成)</button>
+                 <button type="button" data-batch="retry" id="batchRetryBtn" hidden>批量重试</button>
                  <button type="button" data-batch="delete" id="batchDeleteBtn" class="danger">批量删除</button>
                </div>
              </div>
            </div>
           <div class="table-wrap">
            <table class="data-table">
-             <!-- 列宽唯一来源：9 列固定宽度，与下方 <th> 顺序一一对应，勿增删列。
-                  ⚠️ 改这里的宽度后，必须同步更新 styles.css 里 table.data-table 的 min-width（≥9列之和）。
-                  列顺序：复选框|商品标题|状态|图片|产品规格|视频|尺寸|时间|操作 -->
+             <!-- 列宽唯一来源：10 列固定宽度，与下方 <th> 顺序一一对应，勿增删列。
+                  ⚠️ 改这里的宽度后，必须同步更新 styles.css 里 table.data-table 的 min-width（≥10列之和）。
+                  列顺序：复选框|来源|商品标题|状态|图片|产品规格|视频|尺寸|时间|操作 -->
             <colgroup>
                <col style="width:40px">
+               <col style="width:60px">
                <col style="width:210px">
                <col style="width:60px">
                <col style="width:520px">
@@ -175,6 +168,7 @@
              <thead>
                <tr>
                     <th class="cell-check"><input type="checkbox" id="selectAll" title="全选"></th>
+                   <th>来源</th>
                    <th>商品标题</th>
                    <th>状态</th>
                     <th>图片</th>
@@ -297,6 +291,13 @@
               </div>
             </label>
           </form>
+          <div class="plugin-download">
+            <div class="plugin-download-info">
+              <p class="plugin-download-title">采集插件</p>
+              <p class="plugin-download-desc">下载 Chrome 采集插件压缩包，解压后在「扩展程序」中「加载已解压的扩展程序」即可使用。</p>
+            </div>
+            <button class="primary-btn" type="button" data-action="download-plugin">下载插件</button>
+          </div>
         </section>
       </section>
 
@@ -425,6 +426,8 @@
 
   <div id="toast" class="toast"></div>
   <div id="imageModal" class="image-modal" aria-hidden="true">
+    <div class="modal-type-label" id="modalTypeLabel"></div>
+    <div class="modal-toolbar" id="modalToolbar"></div>
     <button class="modal-close" data-action="close-modal">关闭</button>
     <button class="modal-nav modal-prev" data-action="prev-image" aria-label="上一张">&lt;</button>
     <img id="modalImage" alt="预览图片">

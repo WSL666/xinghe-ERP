@@ -24,3 +24,9 @@ Thumbs.db
 
 # 测试数据文件
 *.xlsx
+
+# 注册验证码白名单(测试阶段, 每个码发一次即删, 不入库)
+backend/sms_codes.txt
+
+# 采集插件 zip: 后端运行时自动打包缓存(_ensure_plugin_zip), 不进 git
+collector/temu-collector.zip

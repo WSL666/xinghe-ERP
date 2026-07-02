@@ -8,7 +8,7 @@
  *    6 视频   | 7 尺寸     | 8 时间 | 9 操作
  *
  *  渲染约定（改这些函数时必须遵守，否则整表错位）：
- *   · renderProducts() 每行恰好输出 9 个 <td>，空状态行用 colspan="9"。
+ *   · renderProducts() 每行恰好输出 10 个 <td>，空状态行用 colspan="10"。
  *   · 图片列：源图一行、AI图一行，各自最多 10 张，>10 折叠成 9++N。见 renderImageRows/renderImageRow。
  *   · 视频列：源视频一行、AI视频一行；无视频显示“无视频”，第二行恒显示“AI视频”。见 renderVideoStrip。
  *   · 尺寸列读 item.size_json 的 length/width/height/weight，单位 cm/g，无值显示灰色占位框。
@@ -33,9 +33,12 @@ const state = {
   search: "",
   status: "all",
   user: null,
-  previewImages: [],
-  previewIndex: 0
+  previewItems: [],
+  previewIndex: 0,
+  previewImportId: null,
 };
+// 图片编辑: 预览弹窗操作(按钮); 拖拽开关(默认开, 存 localStorage)
+state.dragEnabled = localStorage.getItem("dragEnabled") !== "0";
 // AI创作中心运行时状态
 state.composerAttachments = [];
 state.studioRefs = [];
@@ -49,9 +52,8 @@ const views = {
   products: { title: "TEMU采集箱", eyebrow: "商品采集箱" },
   box1688: { title: "1688采集箱", eyebrow: "商品采集箱" },
   boxOzon: { title: "OZON采集箱", eyebrow: "商品采集箱" },
-  exportedTemu: { title: "TEMU已导出", eyebrow: "已导出" },
-  exported1688: { title: "1688已导出", eyebrow: "已导出" },
-  exportedOzon: { title: "OZON已导出", eyebrow: "已导出" },
+  exportedAll: { title: "已导出", eyebrow: "已导出" },
+  errorBox: { title: "错误汇总", eyebrow: "失败/错误" },
   recharge: { title: "钱包", eyebrow: "账户" },
   settings: { title: "设置", eyebrow: "配置" },
   agent: { title: "智能体", eyebrow: "AI创作中心" },
@@ -66,9 +68,8 @@ const views = {
 const PANEL_ALIAS = {
   box1688: "products",
   boxOzon: "products",
-  exportedTemu: "products",
-  exported1688: "products",
-  exportedOzon: "products",
+  exportedAll: "products",
+  errorBox: "products",
 };
 /**
  * 每个采集箱对应的平台值（与后端 imports.platform 一致，统一小写）。
@@ -83,13 +84,36 @@ const PLATFORM_BY_VIEW = {
   exportedOzon: "ozon",
 };
 // 已导出箱视图集合(复用 products 面板, 但请求带 exported=true)
-const EXPORTED_VIEWS = { exportedTemu: true, exported1688: true, exportedOzon: true };
+const EXPORTED_VIEWS = { exportedAll: true };
+const ERROR_VIEW = "errorBox";
+const PLATFORM_LABEL = { temu: "TEMU", "1688": "1688", ozon: "OZON" };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 // Top-level safe clipboard copy. navigator.clipboard is undefined over plain
 // HTTP LAN (https/localhost only); fall back to a hidden textarea + execCommand.
+async function downloadPlugin() {
+  const response = await fetch(apiUrl("/api/temu/plugin/download"), { credentials: "include" });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    const detail = data.detail && data.detail.error ? data.detail.error : data.error;
+    throw new Error(detail || `下载失败: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const filename = parseFilename(disposition, "temu-collector.zip");
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  toast("采集插件已下载。");
+}
+
 async function copyTextSafe(value) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     try { await navigator.clipboard.writeText(value); return true; } catch {}
@@ -261,48 +285,76 @@ function renderThumbs(items, mode = "remote") {
 
 function renderImageRows(originals, generated, item) {
   // 源图一行、AI 图一行（各自独立），每行最多 10 张，两行垂直堆叠
-  const originalList = normalizeImageItems(originals).map((it) => ({ ...it, kind: "orig" }));
-  const generatedList = normalizeImageItems(generated, "generated").map((it) => ({ ...it, kind: "ai" }));
+  const importId = item && item.id;
+  const originalList = normalizeImageItems(originals).map((it) => ({ ...it, kind: "orig", importId }));
+  const generatedList = (generated || []).map((g) => ({
+    src: imageDownloadUrl(g.generated_image || g),
+    title: g.image_type || "",
+    kind: "ai",
+    imageType: g.image_type || "",
+    deleted: !!g.deleted,
+    promoted: g.source === "manual_original",
+    importId,
+  })).filter((it) => it.src);
+
+  // AI 行只显示未删除的; 已删的折叠到"已删除(N)"区域
+  const aiVisible = generatedList.filter((g) => !g.deleted);
+  const aiDeleted = generatedList.filter((g) => g.deleted);
 
   // 生成中: 只显示已完成的图(逐张弹出), 不显示转圈占位
   const isGenerating = item && (item.status === "generating" || item.status === "queued");
   const aiRow = isGenerating && generatedList.length === 0
     ? `<div class="image-strip img-strip-row empty-strip"><span class="empty-thumb">生成中</span></div>`
-    : renderImageRow(generatedList, "ai", "AI");
+    : renderImageRow(aiVisible, "ai", "AI", importId, true);
+
+  // 折叠区: 有已删图时显示"已删除(N)", 点击展开查看+还原
+  const deletedSection = aiDeleted.length
+    ? `<div class="deleted-fold">
+         <button class="deleted-toggle" data-action="toggle-deleted" data-import-id="${importId || ""}" type="button">已删除(${aiDeleted.length})</button>
+         <div class="deleted-strip" hidden>${renderImageRow(aiDeleted, "ai", "已删", importId, false)}</div>
+       </div>`
+    : "";
 
   return `
-    <div class="image-row-stack">
-      ${renderImageRow(originalList, "orig", "源")}
+    <div class="image-row-stack" data-import-id="${importId || ""}">
+      ${renderImageRow(originalList, "orig", "源", importId, false)}
       ${aiRow}
+      ${deletedSection}
     </div>
   `;
 }
 
 // 渲染单行图片：固定每行最大 MAX_IMAGES 张（含 +N 占位框）。永不换行、永不撑高
-function renderImageRow(list, kind, label) {
+function renderImageRow(list, kind, label, importId, isDropTarget = false) {
   const MAX_IMAGES = 10;
   if (!list.length) {
     return `<div class="image-strip img-strip-row empty-strip"><span class="empty-thumb">${label}图</span></div>`;
   }
-  const encoded = imageSetToken(list);
+  // 编码完整 item 信息(含 kind/imageType/deleted/promoted), 供预览弹窗定位操作目标
+  const encoded = encodeURIComponent(JSON.stringify(list));
   const exceed = list.length > MAX_IMAGES;
   const overflow = exceed ? list.length - (MAX_IMAGES - 1) : 0;
   const shown = list.slice(0, exceed ? MAX_IMAGES - 1 : MAX_IMAGES);
-  const tiles = shown.map((item, index) => `
+  const tiles = shown.map((item, index) => {
+    const badge = item.promoted ? `<span class="tile-badge orig">源</span>` : `<span class="tile-badge ${kind}">${label}</span>`;
+    const dragAttr = (kind === "orig" && state.dragEnabled) ? `draggable="true" data-drag="orig-img"` : "";
+    return `
     <button class="image-tile" type="button"
       data-action="preview"
       data-src="${escapeHtml(item.src)}"
       data-index="${index}"
-      data-images="${encoded}"
-      title="${escapeHtml(item.title)}">
+      data-items="${encoded}"
+      data-import-id="${importId || ""}"
+      title="${escapeHtml(item.title)}" ${dragAttr}>
       <img src="${escapeHtml(item.src)}" loading="lazy" alt="">
-      <span class="tile-badge ${kind}">${label}</span>
-    </button>
-  `).join("");
+      ${badge}
+    </button>`;
+  }).join("");
   const more = exceed
     ? `<span class="image-tile tile-more" title="共 ${list.length} 张${label}图"><span>+${overflow}</span></span>`
     : "";
-  return `<div class="image-strip img-strip-row">${tiles}${more}</div>`;
+  const dropAttrs = isDropTarget ? ` data-drop-target="ai-row" data-import-id="${importId || ""}"` : "";
+  return `<div class="image-strip img-strip-row"${dropAttrs}>${tiles}${more}</div>`;
 }
 
 function renderImageStrip(list, tail = "") {
@@ -483,6 +535,7 @@ function renderProducts() {
   // 清掉已不存在的 id(被删除/筛选掉的)
   const liveIds = new Set(rows.map((r) => Number(r.id)));
   const isExported = !!EXPORTED_VIEWS[state.view];
+  const isError = state.view === ERROR_VIEW;
   for (const id of [...prevChecked]) {
     if (!liveIds.has(id)) prevChecked.delete(id);
   }
@@ -495,9 +548,10 @@ function renderProducts() {
     return `
       <tr>
         <td class="cell-check"><input type="checkbox" class="row-check" value="${item.id}" ${prevChecked.has(Number(item.id)) ? "checked" : ""}></td>
+        <td>${PLATFORM_LABEL[item.platform] || escapeHtml(item.platform || "")}</td>
         <td>
           <div class="product-title">
-            <div class="title-line title-orig" title="${origTitle}"><span>原</span>${origTitle}</div>
+            <div class="title-line title-orig" title="${origTitle}"><span>源</span>${origTitle}</div>
             <div class="title-line title-ai" title="${escapeHtml(item.cn_title || "")}"><span>新</span>${cnTitle}</div>
             <div class="title-line title-en" title="${escapeHtml(item.en_title || "")}"><span>英</span>${enTitle}</div>
             <div class="ref-row"><small class="ref-badge">ID: ${escapeHtml(item.ref_code || item.id)}</small><button class="ref-copy" data-action="copy-ref" data-ref="${escapeHtml(item.ref_code || item.id)}" title="复制编号" type="button">复制</button></div>
@@ -514,13 +568,13 @@ function renderProducts() {
             <button data-action="detail" data-id="${item.id}">详情</button>
             <button disabled>编辑</button>
             <button disabled>导入</button>
-            ${isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
+            ${isError ? `<button data-action="retry" data-id="${item.id}">重试</button><button data-action="restore" data-id="${item.id}">移回采集箱</button>` : isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
             <button class="danger" data-action="delete" data-id="${item.id}">删除</button>
           </div>
         </td>
       </tr>
     `;
-  }).join("") : `<tr><td colspan="9"><div class="empty-state">没有匹配的商品。</div></td></tr>`;
+  }).join("") : `<tr><td colspan="10"><div class="empty-state">没有匹配的商品。</div></td></tr>`;
 }
 
 function renderAll() {
@@ -603,9 +657,11 @@ async function updateRechargePanel() {
 async function refreshData({ silent = false } = {}) {
   try {
     const isExported = !!EXPORTED_VIEWS[state.view];
+    const isError = state.view === ERROR_VIEW;
     const qs = [];
     if (state.platform) qs.push(`platform=${encodeURIComponent(state.platform)}`);
     if (isExported) qs.push("exported=true");
+    if (isError) qs.push("error=true");
     const url = qs.length ? `/api/temu/imports?${qs.join("&")}` : "/api/temu/imports";
     const data = await apiFetch(url);
     state.imports = Array.isArray(data.imports) ? data.imports : [];
@@ -690,6 +746,14 @@ async function runStep(id, step) {
   await refreshData({ silent: true });
 }
 
+// 统一解析 Content-Disposition 中的文件名(优先 UTF-8 编码的 filename*)
+function parseFilename(disposition, fallback) {
+  const star = (disposition.match(/filename\*=UTF-8''([^;]+)/i) || [])[1];
+  if (star) { try { return decodeURIComponent(star); } catch {} }
+  const plain = (disposition.match(/filename="?([^";]+)"?/i) || [])[1];
+  return plain || fallback;
+}
+
 async function exportItem(id) {
   const response = await fetch(apiUrl(`/api/temu/imports/${id}/export`), {
     method: "POST",
@@ -701,8 +765,7 @@ async function exportItem(id) {
   }
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^";]+)"?/i);
-  const filename = match ? match[1] : `final_result_${id}.xlsx`;
+  const filename = parseFilename(disposition, `final_result_${id}.xlsx`);
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -762,10 +825,7 @@ async function reexportItem(id) {
   }
   const blob = await response.blob();
   const disposition = response.headers.get("Content-Disposition") || "";
-  const star = (disposition.match(/filename\*=UTF-8''([^;]+)/i) || [])[1];
-  const plain = (disposition.match(/filename="?([^";]+)"?/i) || [])[1];
-  let filename = plain || `export_${id}.xlsx`;
-  if (star) { try { filename = decodeURIComponent(star); } catch {} }
+  const filename = parseFilename(disposition, `export_${id}.xlsx`);
   if (window.showSaveFilePicker) {
     try {
       const handle = await window.showSaveFilePicker({
@@ -792,6 +852,30 @@ async function reexportItem(id) {
   toast("导出已下载。");
 }
 
+async function retryItem(id) {
+  // 错误箱「重试」: 重新入队跑流水线
+  try {
+    await apiFetch(`/api/temu/imports/${id}/generate`, { method: "POST" });
+    toast("已重新加入队列。");
+    state.selectedIds && state.selectedIds.delete(Number(id));
+    await refreshData({ silent: true });
+  } catch (error) {
+    toast(error.message || "重试失败。", "error");
+  }
+}
+
+async function restoreItem(id) {
+  // 错误箱「移回采集箱」: 仅重置状态为 pending, 不自动跑
+  try {
+    await apiFetch(`/api/temu/imports/${id}/restore`, { method: "POST" });
+    toast("已移回收采箱。");
+    state.selectedIds && state.selectedIds.delete(Number(id));
+    await refreshData({ silent: true });
+  } catch (error) {
+    toast(error.message || "操作失败。", "error");
+  }
+}
+
 async function unexportItem(id) {
   // 移回收采箱: 取消已导出标记
   try {
@@ -802,6 +886,23 @@ async function unexportItem(id) {
   } catch (error) {
     toast(error.message || "操作失败。", "error");
   }
+}
+
+async function batchRetry() {
+  const ids = selectedIds();
+  if (!ids.length) { toast("请先勾选商品。", "warn"); return; }
+  toggleBatchMenu(false);
+  toast(`正在重试 ${ids.length} 个...`);
+  let ok = 0;
+  for (const id of ids) {
+    try {
+      await apiFetch(`/api/temu/imports/${id}/generate`, { method: "POST" });
+      state.selectedIds && state.selectedIds.delete(Number(id));
+      ok++;
+    } catch {}
+  }
+  await refreshData({ silent: true });
+  toast(`已重新加入队列 ${ok} 个。`);
 }
 
 async function markBulkExported(ids) {
@@ -839,8 +940,18 @@ function selectedIds() {
 
 function updateBatchState() {
   const has = selectedIds().length > 0;
-  $("#batchExportBtn").disabled = !has;
+  const isError = state.view === ERROR_VIEW;
   $("#batchDeleteBtn").disabled = !has;
+  if (isError) {
+    $("#batchExportBtn").hidden = true;
+    const retry = $("#batchRetryBtn");
+    if (retry) { retry.hidden = false; retry.disabled = !has; }
+  } else {
+    $("#batchExportBtn").hidden = false;
+    $("#batchExportBtn").disabled = !has;
+    const retry = $("#batchRetryBtn");
+    if (retry) retry.hidden = true;
+  }
 }
 
 function toggleBatchMenu(open) {
@@ -867,8 +978,7 @@ async function batchExport() {
     }
     const blob = await response.blob();
     const disposition = response.headers.get("Content-Disposition") || "";
-    const match = disposition.match(/filename="?([^";]+)"?/i);
-    const filename = match ? match[1] : (ids.length === 1 ? `final_result_${ids[0]}.xlsx` : "exports.zip");
+    const filename = parseFilename(disposition, ids.length === 1 ? `final_result_${ids[0]}.xlsx` : "exports.zip");
     const doneIds = ids.slice();
     if (window.showSaveFilePicker) {
       try {
@@ -1054,10 +1164,15 @@ function closeVideo() {
   modal.setAttribute("aria-hidden", "true");
 }
 
-function openPreview(src, images = [], index = 0) {
-  state.previewImages = images.length ? images : [src];
-  state.previewIndex = Math.max(0, Math.min(index, state.previewImages.length - 1));
-  $("#modalImage").src = state.previewImages[state.previewIndex];
+function openPreview(src, items = [], index = 0, importId = null) {
+  // items: [{src, kind, imageType, deleted, promoted, importId}]
+  if (!items.length) {
+    items = [{ src, kind: "orig", deleted: false, promoted: false, importId }];
+  }
+  state.previewItems = items;
+  state.previewImportId = importId;
+  state.previewIndex = Math.max(0, Math.min(index, items.length - 1));
+  renderPreview();
   $("#imageModal").classList.add("open");
   $("#imageModal").setAttribute("aria-hidden", "false");
 }
@@ -1066,14 +1181,96 @@ function closePreview() {
   $("#imageModal").classList.remove("open");
   $("#imageModal").setAttribute("aria-hidden", "true");
   $("#modalImage").src = "";
-  state.previewImages = [];
+  state.previewItems = [];
   state.previewIndex = 0;
+  state.previewImportId = null;
+}
+
+function currentPreviewItem() {
+  return state.previewItems[state.previewIndex] || null;
+}
+
+function renderPreview() {
+  const item = currentPreviewItem();
+  if (!item) return;
+  $("#modalImage").src = item.src;
+  // 类型标签
+  const label = $("#modalTypeLabel");
+  let txt = "";
+  if (item.kind === "orig") txt = "源";
+  else if (item.deleted) txt = "AI已删除";
+  else if (item.promoted) txt = "源·转成品";
+  else txt = "AI成品";
+  if (label) label.textContent = txt;
+  label.className = "modal-type-label" + (item.deleted ? " is-deleted" : "");
+
+  // 工具栏: 按类型显示对应按钮
+  const tb = $("#modalToolbar");
+  if (!tb) return;
+  const iid = item.importId || state.previewImportId;
+  let btns = "";
+  if (item.kind === "orig") {
+    // 原图: 只能"用作成品"
+    btns = `<button class="modal-tool-btn promote" data-action="ai-promote" data-import-id="${iid}" data-src="${escapeHtml(item.src)}">用作成品</button>`;
+  } else if (item.deleted) {
+    // AI已删: 只能"还原"
+    btns = `<button class="modal-tool-btn restore" data-action="ai-restore" data-import-id="${iid}" data-image-type="${escapeHtml(item.imageType)}">还原</button>`;
+  } else {
+    // AI成品: 可以"删除"(含原图转成品的)
+    btns = `<button class="modal-tool-btn delete" data-action="ai-delete" data-import-id="${iid}" data-image-type="${escapeHtml(item.imageType)}">删除</button>`;
+  }
+  tb.innerHTML = btns;
 }
 
 function shiftPreview(delta) {
-  if (!state.previewImages.length) return;
-  state.previewIndex = (state.previewIndex + delta + state.previewImages.length) % state.previewImages.length;
-  $("#modalImage").src = state.previewImages[state.previewIndex];
+  if (!state.previewItems.length) return;
+  state.previewIndex = (state.previewIndex + delta + state.previewItems.length) % state.previewItems.length;
+  renderPreview();
+}
+
+async function aiImageAction(action, importId, payload) {
+  const ep = {
+    promote: `/api/temu/imports/${importId}/ai-image/promote`,
+    delete: `/api/temu/imports/${importId}/ai-image/delete`,
+    restore: `/api/temu/imports/${importId}/ai-image/restore`,
+  }[action];
+  if (!ep) return;
+  const data = await apiFetch(ep, { method: "POST", body: JSON.stringify(payload) });
+  toast(action === "promote" ? "已用作成品图。" : action === "delete" ? "已删除，可在「已删除」中还原。" : "已还原。");
+  // 局部更新内存中该商品的 generated_json, 避免整页刷新
+  const imp = state.imports.find((it) => Number(it.id) === Number(importId));
+  if (imp && data.generated) imp.generated_json = data.generated;
+  await refreshData({ silent: true });
+  // 操作后保持弹窗打开, 用最新数据重新构建预览列表(方便连续删除/还原)
+  if (imp && state.previewItems.length) {
+    const oldItem = currentPreviewItem();
+    const fresh = rebuildPreviewItems(imp, oldItem);
+    if (fresh) { state.previewItems = fresh.items; state.previewIndex = fresh.index; renderPreview(); }
+  }
+}
+
+// 根据最新的 generated_json 重建弹窗预览列表, 尽量保持停留在用户当前看的图片
+function rebuildPreviewItems(imp, oldItem) {
+  const importId = imp.id;
+  const orig = normalizeImageItems(imp.gallery_images || []).map((it) => ({ ...it, kind: "orig", importId }));
+  const gen = (generatedOk(imp)).map((g) => ({
+    src: imageDownloadUrl(g.generated_image || g),
+    title: g.image_type || "",
+    kind: "ai",
+    imageType: g.image_type || "",
+    deleted: !!g.deleted,
+    promoted: g.source === "manual_original",
+    importId,
+  })).filter((it) => it.src);
+  const all = orig.concat(gen);
+  if (!all.length) return null;
+  // 尝试停在原来的位置; 找不到就停第一张
+  let idx = 0;
+  if (oldItem) {
+    const found = all.findIndex((it) => it.src === oldItem.src);
+    if (found >= 0) idx = found;
+  }
+  return { items: all, index: idx };
 }
 
 async function copyText(value) {
@@ -1115,15 +1312,34 @@ function bindEvents() {
       if (action === "play-video") openVideo(actionButton.dataset.src, actionButton.dataset.poster);
       if (action === "close-video") closeVideo();
       if (action === "preview") {
-        let images = [];
+        let items = [];
         try {
-          images = JSON.parse(decodeURIComponent(actionButton.dataset.images || "[]"));
-        } catch {}
-        openPreview(actionButton.dataset.src, images, Number(actionButton.dataset.index || 0));
+          items = JSON.parse(decodeURIComponent(actionButton.dataset.items || "[]"));
+        } catch {
+          // 兼容旧调用(纯 url 数组)
+          try {
+            const urls = JSON.parse(decodeURIComponent(actionButton.dataset.images || "[]"));
+            items = urls.map((u) => ({ src: u, kind: "orig", deleted: false, promoted: false }));
+          } catch {}
+        }
+        const iid = actionButton.dataset.importId || null;
+        if (!items.length) items = [{ src: actionButton.dataset.src, kind: "orig", deleted: false, promoted: false }];
+        openPreview(actionButton.dataset.src, items, Number(actionButton.dataset.index || 0), iid);
       }
       if (action === "close-modal") closePreview();
       if (action === "prev-image") shiftPreview(-1);
       if (action === "next-image") shiftPreview(1);
+      if (action === "toggle-deleted") {
+        const strip = actionButton.nextElementSibling;
+        if (strip) {
+          const isHidden = strip.hasAttribute("hidden");
+          if (isHidden) { strip.removeAttribute("hidden"); actionButton.classList.add("open"); }
+          else { strip.setAttribute("hidden", ""); actionButton.classList.remove("open"); }
+        }
+      }
+      if (action === "ai-promote") await aiImageAction("promote", actionButton.dataset.importId, { source_url: actionButton.dataset.src });
+      if (action === "ai-delete") await aiImageAction("delete", actionButton.dataset.importId, { image_type: actionButton.dataset.imageType });
+      if (action === "ai-restore") await aiImageAction("restore", actionButton.dataset.importId, { image_type: actionButton.dataset.imageType });
       if (action === "detail") openDetail(id);
       if (action === "spec") openSpec(id);
       if (action === "close-drawer") closeDrawer();
@@ -1134,10 +1350,13 @@ function bindEvents() {
       if (action === "export") await exportItem(id);
       if (action === "reexport") await reexportItem(id);
       if (action === "unexport") await unexportItem(id);
+      if (action === "retry") await retryItem(id);
+      if (action === "restore") await restoreItem(id);
       if (action === "delete") await deleteItem(id);
       if (action === "copy-plugin-url") { const _u = $("#pluginUrl"); const _ok = await copyTextSafe(_u ? (_u.dataset.real || "") : ""); toast(_ok ? "已复制。" : "复制失败，请手动复制。"); }
       if (action === "copy-ref") { const _ok = await copyTextSafe(actionButton.dataset.ref || ""); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }
       if (action === "copy-api-key") { const _inp = $("#pluginApiKey"); const _v = _inp ? (_inp.dataset.real || "") : ""; const _ok = await copyTextSafe(_v); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }
+      if (action === "download-plugin") { const _btn = actionButton; const _t = _btn.textContent; _btn.textContent = "准备中…"; _btn.disabled = true; try { await downloadPlugin(); } catch (e) { toast(e.message || "下载失败", "error"); } finally { setTimeout(() => { _btn.textContent = _t; _btn.disabled = false; }, 1200); } }
 
       if (action === "toggle-eye") {
         const el = $("#" + actionButton.dataset.target);
@@ -1194,6 +1413,46 @@ function bindEvents() {
     if (event.target.id === "imageModal") closePreview();
   });
 
+  // --- 拖拽: 原图 → AI行 = 用作成品 (傻瓜式) ---
+  document.addEventListener("dragstart", (event) => {
+    const tile = event.target.closest("[data-drag=orig-img]");
+    if (!tile) return;
+    event.dataTransfer.setData("text/plain", JSON.stringify({
+      src: tile.dataset.src,
+      importId: tile.dataset.importId,
+    }));
+    event.dataTransfer.effectAllowed = "copy";
+  });
+
+  document.addEventListener("dragover", (event) => {
+    const zone = event.target.closest("[data-drop-target=ai-row]");
+    if (!zone) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    zone.classList.add("drag-over");
+  });
+
+  document.addEventListener("dragleave", (event) => {
+    const zone = event.target.closest("[data-drop-target=ai-row]");
+    if (zone && !zone.contains(event.relatedTarget)) zone.classList.remove("drag-over");
+  });
+
+  document.addEventListener("drop", async (event) => {
+    const zone = event.target.closest("[data-drop-target=ai-row]");
+    if (!zone) return;
+    event.preventDefault();
+    zone.classList.remove("drag-over");
+    let payload = {};
+    try { payload = JSON.parse(event.dataTransfer.getData("text/plain")); } catch {}
+    const importId = payload.importId || zone.dataset.importId;
+    if (!importId || !payload.src) return;
+    try {
+      await aiImageAction("promote", importId, { source_url: payload.src });
+    } catch (error) {
+      toast(error.message, "error");
+    }
+  });
+
   $("#selectAll").addEventListener("change", (event) => {
     const checked = event.target.checked;
     const sel = state.selectedIds || (state.selectedIds = new Set());
@@ -1241,6 +1500,8 @@ function bindEvents() {
       updateBatchState();
     } else if (action === "export") {
       batchExport();
+    } else if (action === "retry") {
+      batchRetry();
     } else if (action === "delete") {
       batchDelete();
     }

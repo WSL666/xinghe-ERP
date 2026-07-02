@@ -7,9 +7,12 @@
   "host_permissions": ["*://*.temu.com/*", "https://wangshilin888.com:8443/*"],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Temu商品采集助手"
+    "default_title": "Temu商品采集助手",
+    "default_icon": "tongkuai_image.png"
   },
   "icons": {
-    "16": "icon16.png.png"
+    "16": "tongkuai_image.png",
+    "48": "tongkuai_image.png",
+    "128": "tongkuai_image.png"
   }
 }

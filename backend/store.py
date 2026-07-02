@@ -316,7 +316,8 @@ def create_user(account: str, password: str, display_name: str = "") -> dict[str
             """
             INSERT INTO users (uid, account, password_hash, api_key, display_name, is_verified)
             VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id, uid, account, api_key, display_name, is_verified, is_active, created_at
+            RETURNING id, uid, account, api_key, display_name,
+                     is_verified, is_active, beans, role, created_at
             """,
             (
                 uid,
@@ -471,15 +472,26 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
     return item
 
 
-def list_imports(user_id: int, platform: str | None = None, exported: bool = False) -> list[dict[str, Any]]:
+def list_imports(user_id: int, platform: str | None = None, exported: bool = False,
+                error_box: bool = False) -> list[dict[str, Any]]:
     """列出某用户的导入记录。
 
-    exported=False(默认): 只返回采集箱(未导出)的记录。
-    exported=True: 只返回已导出箱(已归档)的记录。
+    三个互斥的箱子(由调用方组合参数决定):
+      - 采集箱(默认): exported=False, error_box=False → 未导出 且 非 error
+      - 已导出箱:     exported=True,  error_box=False → 已归档(可能含 error)
+      - 错误箱:       error_box=True → 所有 status=error 的(跨平台汇总)
+    platform 不为空时额外按平台过滤(错误箱通常不传, 拉全部平台)。
     """
     with db_conn() as conn:
-        clauses = ["i.user_id = %s", "i.exported = %s"]
-        params: list = [user_id, exported]
+        clauses = ["i.user_id = %s"]
+        params: list = [user_id]
+        if error_box:
+            clauses.append("i.status = 'error'")
+        else:
+            clauses.append("i.exported = %s")
+            params.append(exported)
+            # 采集箱 + 已导出箱 都排除 error, error 只出现在错误汇总
+            clauses.append("i.status != 'error'")
         if platform:
             clauses.append("i.platform = %s")
             params.append(platform)
@@ -602,6 +614,74 @@ def append_generated_image(user_id: int, import_id: int, image_data: dict[str, A
             """,
             (one, user_id, import_id),
         )
+
+
+def edit_ai_image(user_id: int, import_id: int, action: str,
+                image_type: str = "", source_url: str = "") -> dict[str, Any] | None:
+    """对 generated_json 做原地增删改,返回最新的 generated_json(供前端刷新)。
+
+    action:
+      - "promote":  把一张原图 URL 追加为成品图(标记 source=manual_original)
+      - "delete":   软删除某张 AI 图(置 deleted=true,数据保留可还原)
+      - "restore":  还原某张已软删的 AI 图(清 deleted)
+    定位用 image_type(数组内唯一), promote 无需 image_type(新增)。
+
+    并发安全: 在一个事务内 SELECT ... FOR UPDATE 锁行, 读-改-写原子完成,
+    避免与 append_generated_image 的 worker 追加互相覆盖。
+    """
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT generated_json FROM imports WHERE user_id = %s AND id = %s FOR UPDATE",
+            (user_id, import_id),
+        ).fetchone()
+        if row is None:
+            return None
+        generated = row.get("generated_json")
+        if isinstance(generated, str):
+            generated = json.loads(generated)
+        if not isinstance(generated, list):
+            generated = []
+
+        if action == "promote":
+            if not source_url:
+                return None
+            # 同一张原图不重复 promote: 先清掉所有同 URL 的旧 manual_original 项
+            # (避免历史多次 promote/delete 留下多个重复项), 再追加一个新的。
+            generated = [
+                g for g in generated
+                if not (g.get("source") == "manual_original"
+                        and g.get("generated_image") == source_url)
+            ]
+            new_item = {
+                "image_type": f"manual_{int(datetime.now().timestamp() * 1000)}",
+                "generated_image": source_url,
+                "oss_object_key": "",
+                "source": "manual_original",
+                "deleted": False,
+            }
+            generated = generated + [new_item]
+        elif action in ("delete", "restore"):
+            flag = action == "delete"
+            found = False
+            for g in generated:
+                if g.get("image_type") == image_type:
+                    g["deleted"] = flag
+                    found = True
+                    break
+            if not found:
+                return None
+        else:
+            return None
+
+        conn.execute(
+            """
+            UPDATE imports
+            SET generated_json = %s, updated_at = now()
+            WHERE user_id = %s AND id = %s
+            """,
+            (json.dumps(generated, ensure_ascii=False), user_id, import_id),
+        )
+    return generated
 
 
 def update_status(user_id: int, import_id: int, status: str, msg: str = "") -> None:
