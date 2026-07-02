@@ -314,8 +314,11 @@ def dashboard_overview() -> dict[str, Any]:
                 COUNT(*) FILTER (WHERE created_at >= current_date) AS today_imports,
                 COUNT(*) FILTER (WHERE status = 'done') AS total_done,
                 COUNT(*) FILTER (WHERE status = 'error') AS total_error,
-                COUNT(*) FILTER (WHERE status IN ('queued','running')) AS in_progress,
-                COUNT(*) AS total_imports
+                COUNT(*) FILTER (WHERE status IN ('queued','running','translating','generating','pending')) AS in_progress,
+                COUNT(*) AS total_imports,
+                COUNT(*) FILTER (WHERE created_at >= current_date AND status = 'done') AS today_done,
+                COUNT(*) FILTER (WHERE created_at >= current_date AND status = 'error') AS today_error,
+                COUNT(*) FILTER (WHERE created_at >= current_date AND status IN ('queued','running','translating','generating','pending')) AS today_running
             FROM imports
             """
         ).fetchone()
@@ -335,6 +338,9 @@ def dashboard_overview() -> dict[str, Any]:
         "total_done": int(today["total_done"]),
         "total_error": int(today["total_error"]),
         "in_progress": int(today["in_progress"]),
+        "today_done": int(today["today_done"]),
+        "today_error": int(today["today_error"]),
+        "today_running": int(today["today_running"]),
         "recharge_beans": int(beans["recharge_total"]),
         "consume_beans": abs(int(beans["consume_total"])),
     }
@@ -356,12 +362,20 @@ def list_users(
     if keyword:
         conditions.append("(u.account ILIKE %s OR u.uid ILIKE %s)")
         params.extend([f"%{keyword}%", f"%{keyword}%"])
-    if status == "active":
+    if status == "deleted":
+        conditions.append("u.is_deleted = TRUE")
+    elif status == "active":
+        conditions.append("u.is_deleted = FALSE")
         conditions.append("u.is_active = TRUE")
+        conditions.append("u.is_frozen = FALSE")
     elif status == "frozen":
         conditions.append("u.is_frozen = TRUE")
+        conditions.append("u.is_deleted = FALSE")
     elif status == "disabled":
         conditions.append("u.is_active = FALSE")
+        conditions.append("u.is_deleted = FALSE")
+    else:
+        conditions.append("u.is_deleted = FALSE")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     offset = (page - 1) * page_size
     with db_conn() as conn:
@@ -371,7 +385,7 @@ def list_users(
         rows = conn.execute(
             f"""
             SELECT u.id, u.account, u.uid, u.display_name, u.beans,
-                   u.is_active, u.is_frozen, u.role, u.enterprise_id,
+                   u.is_active, u.is_frozen, u.is_deleted, u.role, u.enterprise_id,
                    e.name AS enterprise_name,
                    u.created_at, u.updated_at,
                    COUNT(imp.id) AS import_count,
@@ -438,6 +452,112 @@ def get_user_detail(user_id: int) -> dict[str, Any] | None:
     return d
 
 
+def get_user_full_profile(user_id: int, tab: str = "info", page: int = 1, page_size: int = 20) -> dict[str, Any] | None:
+    """用户完整档案：基本信息 + 任务/流水/订单全量分页。"""
+    with db_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT u.*, e.name AS enterprise_name
+            FROM users u
+            LEFT JOIN enterprises e ON e.id = u.enterprise_id
+            WHERE u.id = %s
+            """,
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        for k in ("created_at", "updated_at", "last_login_at"):
+            if isinstance(d.get(k), datetime):
+                d[k] = d[k].strftime("%Y-%m-%d %H:%M:%S")
+
+        result: dict[str, Any] = {"user": d}
+
+        offset = (page - 1) * page_size
+
+        if tab == "tasks":
+            total = conn.execute(
+                "SELECT COUNT(*) AS c FROM imports WHERE user_id = %s", (user_id,)
+            ).fetchone()["c"]
+            rows = conn.execute(
+                """
+                SELECT id, title, cn_title, status, status_msg, platform,
+                       created_at, started_at, finished_at, user_seq,
+                       image_count, sku_count
+                FROM imports WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                (user_id, page_size, offset),
+            ).fetchall()
+            result["tasks"] = [_fmt_task(t) for t in rows]
+            result["total"] = int(total)
+
+        elif tab == "transactions":
+            total = conn.execute(
+                "SELECT COUNT(*) AS c FROM bean_transactions WHERE user_id = %s", (user_id,)
+            ).fetchone()["c"]
+            rows = conn.execute(
+                """
+                SELECT amount, balance_after, reason, created_at, import_id
+                FROM bean_transactions WHERE user_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                (user_id, page_size, offset),
+            ).fetchall()
+            result["transactions"] = [_fmt_tx(t) for t in rows]
+            result["total"] = int(total)
+
+        elif tab == "orders":
+            total = conn.execute(
+                "SELECT COUNT(*) AS c FROM recharge_orders WHERE user_id = %s", (user_id,)
+            ).fetchone()["c"]
+            rows = conn.execute(
+                """
+                SELECT r.id, r.amount_beans, r.pay_method, r.note, r.created_at,
+                       r.operator_id, pa.username AS operator_name
+                FROM recharge_orders r
+                LEFT JOIN platform_admins pa ON pa.id = r.operator_id
+                WHERE r.user_id = %s
+                ORDER BY r.created_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                (user_id, page_size, offset),
+            ).fetchall()
+            orders = []
+            for r in rows:
+                od = dict(r)
+                if isinstance(od.get("created_at"), datetime):
+                    od["created_at"] = od["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+                orders.append(od)
+            result["orders"] = orders
+            result["total"] = int(total)
+
+        else:
+            # info tab: 统计汇总
+            stats = conn.execute(
+                """
+                SELECT
+                  COUNT(*) AS task_total,
+                  COUNT(*) FILTER (WHERE status = 'done') AS task_done,
+                  COUNT(*) FILTER (WHERE status = 'error') AS task_error,
+                  COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) AS total_consume,
+                  COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS total_recharge
+                FROM imports imp
+                FULL OUTER JOIN bean_transactions bt ON bt.import_id = imp.id AND bt.user_id = %s
+                WHERE imp.user_id = %s OR bt.user_id = %s
+                """,
+                (user_id, user_id, user_id),
+            ).fetchone()
+            result["stats"] = dict(stats) if stats else {}
+            result["total"] = 1
+
+        result["page"] = page
+        result["page_size"] = page_size
+        return result
+
+
 def set_user_frozen(user_id: int, frozen: bool) -> bool:
     with db_conn() as conn:
         cur = conn.execute(
@@ -454,6 +574,83 @@ def set_user_active(user_id: int, active: bool) -> bool:
             (active, user_id),
         )
         return cur.rowcount > 0
+
+
+def delete_user(user_id: int) -> dict[str, Any] | None:
+    """彻底删除用户及其关联数据。
+
+    数据库外键已设计级联：
+    - imports / bean_transactions / enterprise_members / verification_codes → CASCADE（自动删）
+    - enterprises.creator_user_id / recharge_orders.operator_id → SET NULL（自动置空）
+    """
+    with db_conn() as conn:
+        row = conn.execute(
+            """SELECT id, account, beans FROM users WHERE id = %s""",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return None
+        info = dict(row)
+        conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    return info
+
+
+def admin_edit_ai_image(import_id: int, action: str, image_type: str = "", source_url: str = "") -> list[dict[str, Any]] | None:
+    """超管对任意任务的 generated_json 做增删改(不限 user_id)。
+
+    action:
+      - "promote":  把一张原图 URL 追加为成品图(标记 source=manual_original)
+      - "delete":   软删除某张 AI 图(置 deleted=true)
+      - "restore":  还原某张已软删的 AI 图(清 deleted)
+    返回最新的 generated_json 列表。
+    """
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT generated_json FROM imports WHERE id = %s FOR UPDATE",
+            (import_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        generated = row.get("generated_json")
+        if isinstance(generated, str):
+            generated = json.loads(generated)
+        if not isinstance(generated, list):
+            generated = []
+
+        if action == "promote":
+            if not source_url:
+                return None
+            generated = [
+                g for g in generated
+                if not (g.get("source") == "manual_original"
+                        and g.get("generated_image") == source_url)
+            ]
+            new_item = {
+                "image_type": f"manual_{int(datetime.now().timestamp() * 1000)}",
+                "generated_image": source_url,
+                "oss_object_key": "",
+                "source": "manual_original",
+                "deleted": False,
+            }
+            generated = generated + [new_item]
+        elif action in ("delete", "restore"):
+            flag = action == "delete"
+            found = False
+            for g in generated:
+                if g.get("image_type") == image_type:
+                    g["deleted"] = flag
+                    found = True
+                    break
+            if not found:
+                return None
+        else:
+            return None
+
+        conn.execute(
+            "UPDATE imports SET generated_json = %s, updated_at = now() WHERE id = %s",
+            (json.dumps(generated, ensure_ascii=False), import_id),
+        )
+    return generated
 
 
 def admin_recharge_beans(user_id: int, amount: int, operator_id: int, note: str = "") -> dict[str, Any] | None:
@@ -565,8 +762,14 @@ def list_all_tasks(
         conditions.append("imp.platform = %s")
         params.append(platform)
     if status:
-        conditions.append("imp.status = %s")
-        params.append(status)
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            conditions.append("imp.status = %s")
+            params.append(statuses[0])
+        else:
+            placeholders = ",".join(["%s"] * len(statuses))
+            conditions.append(f"imp.status IN ({placeholders})")
+            params.extend(statuses)
     if keyword:
         conditions.append("(imp.title ILIKE %s OR imp.goods_id ILIKE %s)")
         params.extend([f"%{keyword}%", f"%{keyword}%"])
@@ -665,6 +868,10 @@ def list_all_tasks_rich(
     platform: str = "",
     status: str = "",
     keyword: str = "",
+    account: str = "",
+    ref_code: str = "",
+    date_from: str = "",
+    date_to: str = "",
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict[str, Any]], int]:
@@ -675,24 +882,49 @@ def list_all_tasks_rich(
         conditions.append("imp.platform = %s")
         params.append(platform)
     if status:
-        conditions.append("imp.status = %s")
-        params.append(status)
+        statuses = [s.strip() for s in status.split(",") if s.strip()]
+        if len(statuses) == 1:
+            conditions.append("imp.status = %s")
+            params.append(statuses[0])
+        else:
+            placeholders = ",".join(["%s"] * len(statuses))
+            conditions.append(f"imp.status IN ({placeholders})")
+            params.extend(statuses)
     if keyword:
-        conditions.append("(imp.title ILIKE %s OR imp.goods_id ILIKE %s OR imp.cn_title ILIKE %s)")
-        params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
+        conditions.append("(imp.title ILIKE %s OR imp.goods_id ILIKE %s OR imp.cn_title ILIKE %s OR imp.status_msg ILIKE %s)")
+        params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
+    if account:
+        conditions.append("(u.account ILIKE %s OR u.uid ILIKE %s OR u.display_name ILIKE %s)")
+        params.extend([f"%{account}%", f"%{account}%", f"%{account}%"])
+    if ref_code:
+        # ref_code = uid + user_seq, 拆分匹配
+        conditions.append("(u.uid || imp.user_seq::text = %s)")
+        params.append(ref_code)
+    if date_from:
+        conditions.append("imp.created_at >= %s")
+        params.append(date_from)
+    if date_to:
+        conditions.append("imp.created_at <= %s")
+        params.append(date_to + " 23:59:59")
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     offset = (page - 1) * page_size
     with db_conn() as conn:
         total = conn.execute(
-            f"SELECT COUNT(*) AS c FROM imports imp {where}", params
+            f"SELECT COUNT(*) AS c FROM imports imp JOIN users u ON u.id = imp.user_id {where}", params
         ).fetchone()["c"]
         rows = conn.execute(
             f"""
             SELECT imp.*, u.uid AS owner_uid, u.account, u.display_name,
-                   e.name AS enterprise_name
+                   e.name AS enterprise_name,
+                   COALESCE(bt.bean_cost, 0) AS bean_cost
             FROM imports imp
             JOIN users u ON u.id = imp.user_id
             LEFT JOIN enterprises e ON e.id = u.enterprise_id
+            LEFT JOIN (
+                SELECT import_id, COALESCE(SUM(ABS(amount)), 0) AS bean_cost
+                FROM bean_transactions WHERE amount < 0 AND import_id IS NOT NULL
+                GROUP BY import_id
+            ) bt ON bt.import_id = imp.id
             {where}
             ORDER BY imp.created_at DESC
             LIMIT %s OFFSET %s
@@ -705,6 +937,7 @@ def list_all_tasks_rich(
         d["account"] = row["account"]
         d["display_name"] = row["display_name"]
         d["enterprise_name"] = row["enterprise_name"]
+        d["bean_cost"] = int(row["bean_cost"]) if "bean_cost" in row.keys() else 0
         items.append(d)
     return items, int(total)
 
@@ -715,10 +948,16 @@ def get_task_detail(import_id: int) -> dict[str, Any] | None:
         row = conn.execute(
             """
             SELECT imp.*, u.uid AS owner_uid, u.account, u.display_name,
-                   e.name AS enterprise_name
+                   e.name AS enterprise_name,
+                   COALESCE(bt.bean_cost, 0) AS bean_cost
             FROM imports imp
             JOIN users u ON u.id = imp.user_id
             LEFT JOIN enterprises e ON e.id = u.enterprise_id
+            LEFT JOIN (
+                SELECT import_id, COALESCE(SUM(ABS(amount)), 0) AS bean_cost
+                FROM bean_transactions WHERE amount < 0 AND import_id IS NOT NULL
+                GROUP BY import_id
+            ) bt ON bt.import_id = imp.id
             WHERE imp.id = %s
             """,
             (import_id,),
@@ -729,6 +968,7 @@ def get_task_detail(import_id: int) -> dict[str, Any] | None:
     d["account"] = row["account"]
     d["display_name"] = row["display_name"]
     d["enterprise_name"] = row["enterprise_name"]
+    d["bean_cost"] = int(row["bean_cost"]) if "bean_cost" in row.keys() else 0
     return d
 
 

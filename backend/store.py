@@ -335,7 +335,7 @@ def create_user(account: str, password: str, display_name: str = "") -> dict[str
 def get_user_by_account(account: str) -> dict[str, Any] | None:
     with db_conn() as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE account = %s",
+            "SELECT * FROM users WHERE account = %s AND COALESCE(is_deleted, FALSE) = FALSE",
             (normalize_login(account),),
         ).fetchone()
     return dict(row) if row else None

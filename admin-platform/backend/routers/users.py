@@ -8,7 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from deps import get_client_ip, require_admin
 from store import (
     admin_recharge_beans,
+    delete_user,
     get_user_detail,
+    get_user_full_profile,
     list_users,
     set_user_active,
     set_user_frozen,
@@ -39,6 +41,20 @@ def api_user_detail(
     if not detail:
         raise HTTPException(status_code=404, detail={"ok": False, "error": "user not found"})
     return {"ok": True, "user": detail}
+
+
+@router.get("/{user_id}/full-profile")
+def api_user_full_profile(
+    user_id: int,
+    tab: str = Query("info"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    profile = get_user_full_profile(user_id, tab, page, page_size)
+    if not profile:
+        raise HTTPException(status_code=404, detail={"ok": False, "error": "user not found"})
+    return {"ok": True, **profile}
 
 
 @router.post("/{user_id}/freeze")
@@ -105,3 +121,16 @@ def api_recharge_user(
         raise HTTPException(status_code=404, detail={"ok": False, "error": "user not found"})
     audit(request, admin, "recharge", "user", user_id, {"amount": amount, "note": note})
     return {"ok": True, **result}
+
+
+@router.delete("/{user_id}")
+def api_delete_user(
+    user_id: int,
+    request: Request,
+    admin: dict[str, Any] = Depends(require_admin),
+) -> dict[str, Any]:
+    info = delete_user(user_id)
+    if not info:
+        raise HTTPException(status_code=404, detail={"ok": False, "error": "user not found"})
+    audit(request, admin, "delete_user", "user", user_id, {"account": info.get("account"), "beans": info.get("beans")})
+    return {"ok": True}

@@ -13,12 +13,14 @@
     admin: null,
     users: { page: 1, page_size: 20, total: 0, keyword: "", status: "" },
     enterprises: { page: 1, page_size: 20, total: 0, keyword: "", status: "" },
-    tasks: { page: 1, page_size: 20, total: 0, keyword: "", platform: "", status: "" },
+    tasks: { page: 1, page_size: 20, total: 0, keyword: "", platform: "", status: "", account: "", ref_code: "", date_from: "", date_to: "" },
     transactions: { page: 1, page_size: 50, total: 0, user_id: "", direction: "" },
     orders: { page: 1, page_size: 50, total: 0 },
     audit: { page: 1, page_size: 50, total: 0 },
     errors: { page: 1, page_size: 20, total: 0, keyword: "", platform: "" },
     rechargeTarget: null,
+    profileUser: { uid: null, name: "", tab: "info", page: 1, page_size: 20, total: 0 },
+    liveFeed: { paused: false, timer: null, lastIds: [] },
     billingTab: "transactions",
   };
 
@@ -125,8 +127,118 @@
       document.getElementById("statFailed").textContent = d.total_error;
       document.getElementById("statRecharge").textContent = d.recharge_beans;
       document.getElementById("statConsume").textContent = d.consume_beans;
-      loadRanking();
+      document.getElementById("statTodayDone").textContent = d.today_done || 0;
+      document.getElementById("statTodayRunning").textContent = d.today_running || 0;
+      document.getElementById("statTodayError").textContent = d.today_error || 0;
+      startLiveFeed();
     } catch (e) { toast("加载驾驶舱失败: " + e.message); }
+  }
+
+  /* ── 实时任务流 ── */
+  async function loadLiveFeed() {
+    if (state.liveFeed.paused) return;
+    try {
+      var d = await api("/api/admin/tasks?page=1&page_size=15");
+      if (!d) return;
+      var items = d.tasks || [];
+      var tb = document.getElementById("liveFeedBody");
+      if (!tb) return;
+      if (!items.length) { tb.innerHTML = '<tr><td colspan="9" class="empty-row">暂无任务</td></tr>'; return; }
+      var newIds = items.map(function (it) { return it.id; });
+      var hasNew = state.liveFeed.lastIds.length === 0 || newIds.some(function (id) { return state.liveFeed.lastIds.indexOf(id) < 0; });
+      if (hasNew) {
+        tb.innerHTML = items.map(function (item) {
+          return "<tr>"
+            + '<td class="cell-user">'
+            + '<div class="tu-account">' + esc(item.account || item.display_name || "-") + "</div>"
+            + '<div class="tu-ent muted-cell">' + esc(item.enterprise_name || "个人") + "</div>"
+            + "</td>"
+            + '<td class="cell-source"><span class="src-tag ' + esc(item.platform || "") + '">' + esc(PLATFORM_LABEL[item.platform] || item.platform || "-") + "</span></td>"
+            + '<td class="cell-title">' + titleBlock(item) + "</td>"
+            + '<td><span class="tag ' + taskTagCls(item.status) + '">' + esc(item.status) + "</span></td>"
+            + '<td class="cell-images">' + taskImageCol(item) + "</td>"
+            + '<td class="cell-videos">' + taskVideoCol(item) + "</td>"
+            + '<td class="cell-bean">' + (item.bean_cost ? '<span class="bean-tag">' + esc(item.bean_cost) + "</span>" : '<span class="muted-cell">-</span>') + "</td>"
+            + '<td class="cell-time">' + timeFull(item) + "</td>"
+            + '<td class="action-cell"><button class="mini-btn" data-action="task-detail" data-tid="' + item.id + '">详情</button></td>'
+            + "</tr>";
+        }).join("");
+        state.liveFeed.lastIds = newIds;
+      }
+    } catch (e) { /* 静默 */ }
+  }
+
+  function startLiveFeed() {
+    stopLiveFeed();
+    loadLiveFeed();
+    state.liveFeed.timer = setInterval(loadLiveFeed, 5000);
+  }
+
+  function stopLiveFeed() {
+    if (state.liveFeed.timer) { clearInterval(state.liveFeed.timer); state.liveFeed.timer = null; }
+  }
+
+  function toggleLiveFeed() {
+    state.liveFeed.paused = !state.liveFeed.paused;
+    var btn = document.querySelector(".live-pause-btn");
+    if (btn) btn.textContent = state.liveFeed.paused ? "继续" : "暂停";
+    if (!state.liveFeed.paused) loadLiveFeed();
+  }
+
+  function todayStr() {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, "0");
+    var day = String(d.getDate()).padStart(2, "0");
+    return y + "-" + m + "-" + day;
+  }
+
+  function handleMetricJump(el) {
+    var target = el.dataset.jump;
+    var text = "";
+    var strong = el.querySelector("strong");
+    if (strong && strong.id) text = strong.id;
+    switchView(target);
+    if (target === "tasks") {
+      resetTaskFilters();
+      if (text === "statDone") { setTaskFilter({ status: "done" }); }
+      else if (text === "statRunning") { setTaskFilter({ status: "queued,running,translating,generating,pending" }); }
+      else if (text === "statFailed") { setTaskFilter({ status: "error" }); }
+      else if (text === "statTotal") { setTaskFilter({}); }
+      else if (text === "statToday") { setTaskFilter({ dateFrom: todayStr(), dateTo: todayStr() }); }
+      else if (text === "statTodayDone") { setTaskFilter({ status: "done", dateFrom: todayStr(), dateTo: todayStr() }); }
+      else if (text === "statTodayRunning") { setTaskFilter({ status: "queued,running,translating,generating,pending", dateFrom: todayStr(), dateTo: todayStr() }); }
+      else if (text === "statTodayError") { setTaskFilter({ status: "error", dateFrom: todayStr(), dateTo: todayStr() }); }
+      loadTasks();
+    } else if (target === "users") {
+      loadUsers();
+    } else if (target === "enterprises") {
+      loadEnterprises();
+    } else if (target === "billing") {
+      loadBilling();
+    }
+  }
+
+  function resetTaskFilters() {
+    state.tasks = { page: 1, page_size: 20, total: 0, keyword: "", platform: "", status: "", account: "", ref_code: "", date_from: "", date_to: "" };
+    var el;
+    el = document.getElementById("taskSearch"); if (el) el.value = "";
+    el = document.getElementById("taskAccount"); if (el) el.value = "";
+    el = document.getElementById("taskRefCode"); if (el) el.value = "";
+    el = document.getElementById("taskPlatform"); if (el) el.value = "";
+    el = document.getElementById("taskStatus"); if (el) el.value = "";
+    el = document.getElementById("taskDateFrom"); if (el) el.value = "";
+    el = document.getElementById("taskDateTo"); if (el) el.value = "";
+  }
+
+  function setTaskFilter(f) {
+    if (f.status !== undefined) {
+      state.tasks.status = f.status;
+      var el = document.getElementById("taskStatus");
+      if (el) el.value = f.status.indexOf(",") >= 0 ? "" : f.status;
+    }
+    if (f.dateFrom) { state.tasks.date_from = f.dateFrom; var el = document.getElementById("taskDateFrom"); if (el) el.value = f.dateFrom; }
+    if (f.dateTo) { state.tasks.date_to = f.dateTo; var el = document.getElementById("taskDateTo"); if (el) el.value = f.dateTo; }
   }
 
   async function loadRanking() {
@@ -162,6 +274,7 @@
   }
 
   function userStatusBadge(u) {
+    if (u.is_deleted) return '<span class="tag tag-deleted">已删除</span>';
     if (u.is_frozen) return '<span class="tag tag-frozen">冻结</span>';
     if (!u.is_active) return '<span class="tag tag-disabled">禁用</span>';
     return '<span class="tag tag-ok">正常</span>';
@@ -193,15 +306,155 @@
 
   function userActions(u) {
     var b = [];
+    b.push('<button class="mini-btn" data-action="user-profile" data-uid="' + u.id + '" data-name="' + esc(u.account) + '">详细信息</button>');
+    if (u.is_deleted) return b.join("");
     b.push('<button class="mini-btn" data-action="recharge" data-uid="' + u.id + '" data-name="' + esc(u.account) + '">充值</button>');
     if (u.is_frozen) b.push('<button class="mini-btn" data-action="unfreeze" data-uid="' + u.id + '">解冻</button>');
     else b.push('<button class="mini-btn warn" data-action="freeze" data-uid="' + u.id + '">冻结</button>');
     if (u.is_active) b.push('<button class="mini-btn warn" data-action="disable" data-uid="' + u.id + '">禁用</button>');
     else b.push('<button class="mini-btn" data-action="enable" data-uid="' + u.id + '">启用</button>');
+    b.push('<button class="mini-btn danger" data-action="delete-user" data-uid="' + u.id + '" data-name="' + esc(u.account) + '">删除</button>');
     return b.join("");
   }
 
   /* ── 用户详情 ── */
+  /* ── 用户完整档案抽屉 ── */
+  async function openUserProfile(uid, name) {
+    state.profileUser.uid = uid;
+    state.profileUser.name = name || "";
+    state.profileUser.tab = "info";
+    state.profileUser.page = 1;
+    document.getElementById("profileDrawerTitle").textContent = "用户档案: " + (name || ("ID:" + uid));
+    document.querySelectorAll(".profile-tab").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.profileTab === "info");
+    });
+    show("userProfileDrawer");
+    await loadProfile();
+  }
+
+  async function switchProfileTab(tab) {
+    state.profileUser.tab = tab;
+    state.profileUser.page = 1;
+    document.querySelectorAll(".profile-tab").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.profileTab === tab);
+    });
+    await loadProfile();
+  }
+
+  async function loadProfile() {
+    var pu = state.profileUser;
+    var q = "?tab=" + pu.tab + "&page=" + pu.page + "&page_size=" + pu.page_size;
+    try {
+      var d = await api("/api/admin/users/" + pu.uid + "/full-profile" + q);
+      if (!d) return;
+      pu.total = d.total || 0;
+      renderProfile(d);
+    } catch (e) { toast("加载档案失败: " + e.message); }
+  }
+
+  function renderProfile(d) {
+    var body = document.getElementById("profileBody");
+    var tab = state.profileUser.tab;
+    var u = d.user || {};
+    var html = "";
+
+    if (tab === "info") {
+      html = '<div class="detail-grid">'
+        + detailField("用户ID", u.id)
+        + detailField("账号", u.account)
+        + detailField("UID", u.uid || "-")
+        + detailField("昵称", u.display_name || "-")
+        + detailField("金豆余额", u.beans)
+        + detailField("角色", u.role)
+        + detailField("企业", u.enterprise_name || "-")
+        + detailField("企业ID", u.enterprise_id || "-")
+        + detailField("状态", u.is_frozen ? "已冻结" : (u.is_active ? "正常" : "已禁用"))
+        + detailField("注册时间", u.created_at || "-")
+        + detailField("更新时间", u.updated_at || "-")
+        + detailField("最后登录", u.last_login_at || "-")
+        + detailField("API Key", u.api_key ? (String(u.api_key).substring(0, 12) + "...") : "-")
+        + "</div>";
+      var st = d.stats || {};
+      if (st.task_total !== undefined) {
+        html += '<h4 class="section-title-sm">统计汇总</h4><div class="detail-grid">'
+          + detailField("总任务", st.task_total || 0)
+          + detailField("已完成", st.task_done || 0)
+          + detailField("失败", st.task_error || 0)
+          + detailField("总消费金豆", st.total_consume || 0)
+          + detailField("总充值金豆", st.total_recharge || 0)
+          + "</div>";
+      }
+    } else if (tab === "tasks") {
+      var tasks = d.tasks || [];
+      if (!tasks.length) html = '<div class="empty-row">暂无任务</div>';
+      else {
+        html = '<div class="table-wrap"><table class="data-table"><thead><tr>'
+          + '<th>ID</th><th>标题</th><th>平台</th><th>状态</th><th>信息</th><th>时间</th><th>操作</th>'
+          + '</tr></thead><tbody>';
+        html += tasks.map(function (t) {
+          return "<tr><td>" + t.id + "</td>"
+            + '<td class="ellipsis-cell" title="' + esc(t.title || "") + '">' + esc((t.title || "-").substring(0, 30)) + "</td>"
+            + "<td>" + esc(t.platform || "-") + "</td>"
+            + '<td><span class="tag ' + taskTagCls(t.status) + '">' + esc(t.status) + "</span></td>"
+            + '<td class="ellipsis-cell" title="' + esc(t.status_msg || "") + '">' + esc((t.status_msg || "").substring(0, 30)) + "</td>"
+            + "<td>" + esc((t.created_at || "").substring(0, 16)) + "</td>"
+            + '<td><button class="mini-btn" data-action="task-detail" data-tid="' + t.id + '">详情</button></td></tr>';
+        }).join("");
+        html += '</tbody></table></div>';
+      }
+      html += renderProfilePager("tasks");
+    } else if (tab === "transactions") {
+      var txs = d.transactions || [];
+      if (!txs.length) html = '<div class="empty-row">暂无流水</div>';
+      else {
+        html = '<div class="table-wrap"><table class="data-table"><thead><tr>'
+          + '<th>金额</th><th>余额</th><th>原因</th><th>关联任务</th><th>时间</th>'
+          + '</tr></thead><tbody>';
+        html += txs.map(function (t) {
+          var cls = t.amount >= 0 ? "tag-ok" : "tag-frozen";
+          return "<tr><td><span class='tag " + cls + "'>" + (t.amount >= 0 ? "+" : "") + t.amount + "</span></td>"
+            + "<td>" + t.balance_after + "</td>"
+            + '<td class="ellipsis-cell" title="' + esc(t.reason || "") + '">' + esc((t.reason || "").substring(0, 20)) + "</td>"
+            + "<td>" + (t.import_id ? "#" + t.import_id : "-") + "</td>"
+            + "<td>" + esc((t.created_at || "").substring(0, 16)) + "</td></tr>";
+        }).join("");
+        html += '</tbody></table></div>';
+      }
+      html += renderProfilePager("transactions");
+    } else if (tab === "orders") {
+      var orders = d.orders || [];
+      if (!orders.length) html = '<div class="empty-row">暂无充值记录</div>';
+      else {
+        html = '<div class="table-wrap"><table class="data-table"><thead><tr>'
+          + '<th>订单ID</th><th>金额</th><th>方式</th><th>操作人</th><th>备注</th><th>时间</th>'
+          + '</tr></thead><tbody>';
+        html += orders.map(function (o) {
+          return "<tr><td>" + (o.id || "-") + "</td>"
+            + '<td><span class="bean-tag">+' + (o.amount_beans || 0) + "</span></td>"
+            + "<td>" + esc(o.pay_method || "-") + "</td>"
+            + "<td>" + esc(o.operator_name || "-") + "</td>"
+            + '<td class="ellipsis-cell">' + esc((o.note || "").substring(0, 20)) + "</td>"
+            + "<td>" + esc((o.created_at || "").substring(0, 16)) + "</td></tr>";
+        }).join("");
+        html += '</tbody></table></div>';
+      }
+      html += renderProfilePager("orders");
+    }
+    body.innerHTML = html;
+  }
+
+  function renderProfilePager(tab) {
+    var pu = state.profileUser;
+    var pages = Math.ceil(pu.total / pu.page_size) || 1;
+    if (pages <= 1) return "";
+    var html = '<div class="profile-pager">';
+    if (pu.page > 1) html += '<button class="page-btn" data-action="profile-prev">&lsaquo; 上一页</button>';
+    html += '<span class="page-info">' + pu.page + ' / ' + pages + ' (共' + pu.total + '条)</span>';
+    if (pu.page < pages) html += '<button class="page-btn" data-action="profile-next">下一页 &rsaquo;</button>';
+    html += '</div>';
+    return html;
+  }
+
   async function showUserDetail(uid) {
     try {
       var d = await api("/api/admin/users/" + uid);
@@ -301,8 +554,36 @@
   }
 
   function entActions(e) {
-    if (e.is_frozen) return '<button class="mini-btn" data-action="ent-unfreeze" data-eid="' + e.id + '">解冻</button>';
-    return '<button class="mini-btn warn" data-action="ent-freeze" data-eid="' + e.id + '">冻结</button>';
+    var b = '<button class="mini-btn" data-action="ent-detail" data-eid="' + e.id + '">详情</button>';
+    b += '<button class="mini-btn" data-action="ent-ranking" data-eid="' + e.id + '" data-name="' + esc(e.name) + '">消费排行</button>';
+    if (e.is_frozen) b += '<button class="mini-btn" data-action="ent-unfreeze" data-eid="' + e.id + '">解冻</button>';
+    else b += '<button class="mini-btn warn" data-action="ent-freeze" data-eid="' + e.id + '">冻结</button>';
+    return b;
+  }
+
+  async function showEntRanking(eid, name) {
+    try {
+      var d = await api("/api/admin/billing/ranking?limit=100");
+      var list = (d && d.ranking) || [];
+      show("taskDetailDrawer");
+      document.querySelector("#taskDetailDrawer .drawer-head h3").textContent = "企业消费排行" + (name ? " - " + name : "");
+      var html = "";
+      if (!list.length) {
+        html = '<div class="empty-row">暂无排行数据</div>';
+      } else {
+        html = '<div class="ranking-list-full">';
+        html += list.map(function (r, i) {
+          var badge = i === 0 ? "rank-1" : i === 1 ? "rank-2" : i === 2 ? "rank-3" : "";
+          return '<div class="ranking-row ' + badge + '">'
+            + '<span class="rank-num">' + (i + 1) + '</span>'
+            + '<span class="rank-name">' + esc(r.name || "-") + '</span>'
+            + '<span class="rank-val">' + esc(r.consumed || 0) + ' 金豆</span>'
+            + '</div>';
+        }).join("");
+        html += '</div>';
+      }
+      document.getElementById("taskDetailBody").innerHTML = html;
+    } catch (e) { toast("加载排行失败: " + e.message); }
   }
 
   async function showEnterpriseDetail(eid) {
@@ -364,7 +645,11 @@
       var q = "?page=" + s.page + "&page_size=" + s.page_size
         + "&keyword=" + encodeURIComponent(s.keyword)
         + "&platform=" + encodeURIComponent(s.platform)
-        + "&status=" + encodeURIComponent(s.status);
+        + "&status=" + encodeURIComponent(s.status)
+        + "&account=" + encodeURIComponent(s.account)
+        + "&ref_code=" + encodeURIComponent(s.ref_code)
+        + "&date_from=" + encodeURIComponent(s.date_from)
+        + "&date_to=" + encodeURIComponent(s.date_to);
       var d = await api("/api/admin/tasks" + q);
       if (!d) return;
       renderTasks(d.tasks, d.total);
@@ -381,7 +666,7 @@
     var tb = document.getElementById("tasksBody");
     state.tasks.total = total;
     if (!items.length) {
-      tb.innerHTML = '<tr><td colspan="8" class="empty-row">暂无任务</td></tr>';
+      tb.innerHTML = '<tr><td colspan="9" class="empty-row">暂无任务</td></tr>';
       renderPager("tasksPager", state.tasks, loadTasks); return;
     }
     tb.innerHTML = items.map(function (item) {
@@ -391,20 +676,22 @@
         + '<div class="tu-account">' + esc(item.account || item.display_name || "-") + "</div>"
         + '<div class="tu-ent muted-cell">' + esc(item.enterprise_name || "个人") + "</div>"
         + "</td>"
-        // 商品标题
+        // 来源(平台标签, 同工作台格式)
+        + '<td class="cell-source"><span class="src-tag ' + esc(item.platform || "") + '">' + esc(PLATFORM_LABEL[item.platform] || item.platform || "-") + "</span></td>"
+        // 商品标题(完整不截断)
         + '<td class="cell-title">'
         + titleBlock(item)
         + "</td>"
         // 状态
         + '<td><span class="tag ' + taskTagCls(item.status) + '" title="' + esc(item.status_msg || "") + '">' + esc(item.status) + "</span></td>"
-        // 图片
-        + '<td class="cell-images">' + taskImageRows(item) + "</td>"
-        // 规格
-        + '<td class="cell-spec">' + specCell(item) + "</td>"
-        // 尺寸
-        + '<td class="cell-size">' + sizeCell(item) + "</td>"
-        // 耗时
-        + '<td class="cell-time">' + esc(timeRange(item)) + "</td>"
+        // 图片(全部展示, 单独一列)
+        + '<td class="cell-images">' + taskImageCol(item) + "</td>"
+        // 视频(单独一列)
+        + '<td class="cell-videos">' + taskVideoCol(item) + "</td>"
+        // 消费金豆
+        + '<td class="cell-bean">' + (item.bean_cost ? '<span class="bean-tag">' + esc(item.bean_cost) + "</span>" : '<span class="muted-cell">-</span>') + "</td>"
+        // 时间(完整起始→结束+耗时)
+        + '<td class="cell-time">' + timeFull(item) + "</td>"
         // 操作
         + '<td class="action-cell"><button class="mini-btn" data-action="task-detail" data-tid="' + item.id + '">详情</button></td>'
         + "</tr>";
@@ -416,20 +703,70 @@
     var ref = item.ref_code || item.id;
     return '<div class="task-title-block">'
       + '<div class="tt-platform">' + (PLATFORM_LABEL[item.platform] || esc(item.platform || "")) + '</div>'
-      + '<div class="tt-orig" title="' + esc(item.title || "") + '">' + esc((item.title || "未命名").slice(0, 30)) + '</div>'
-      + (item.cn_title ? '<div class="tt-cn" title="' + esc(item.cn_title) + '">' + esc(item.cn_title.slice(0, 30)) + '</div>' : '')
-      + '<div class="tt-ref muted-cell">ID: ' + esc(ref) + '</div>'
+      + '<div class="tt-orig" title="' + esc(item.title || "") + '"><span class="tt-tag">源</span>' + esc(item.title || "未命名") + '</div>'
+      + '<div class="tt-cn" title="' + esc(item.cn_title || "") + '"><span class="tt-tag">中</span>' + esc(item.cn_title || "待优化") + '</div>'
+      + '<div class="tt-en" title="' + esc(item.en_title || "") + '"><span class="tt-tag">英</span>' + esc(item.en_title || "待翻译") + '</div>'
+      + '<div class="tt-ref muted-cell">编号: ' + esc(ref) + ' · ID: ' + esc(item.id) + '</div>'
       + '</div>';
   }
 
-  function taskImageRows(item) {
-    var originals = normalizeImages(item.gallery_images || []);
-    var generated = (item.generated_json || []).filter(function (g) {
-      return !g.deleted && (g.generated_image || g);
-    }).map(function (g) { return g.generated_image || g; });
-    var origRow = imageRowHtml(originals, "orig", "源");
-    var aiRow = imageRowHtml(generated, "ai", "AI");
-    return '<div class="img-stack">' + origRow + aiRow + '</div>';
+  function taskImageCol(item) {
+    var importId = item.id;
+    var originals = normalizeImages(item.gallery_images || []).map(function (s) {
+      return { src: s, kind: "orig", importId: importId };
+    });
+    var allGenerated = (item.generated_json || []).filter(function (g) {
+      return g && (g.generated_image || g);
+    }).map(function (g) {
+      return {
+        src: g.generated_image || g,
+        kind: "ai",
+        importId: importId,
+        imageType: g.image_type || "",
+        deleted: !!g.deleted,
+        promoted: g.source === "manual_original",
+      };
+    });
+    var aiVisible = allGenerated.filter(function (g) { return !g.deleted; });
+    var aiDeleted = allGenerated.filter(function (g) { return g.deleted; });
+
+    var rows = '<div class="img-stack" data-import-id="' + importId + '">';
+    rows += imageRowHtml(originals, "orig", "源", 0);
+    rows += imageRowHtml(aiVisible, "ai", "AI", 0);
+    if (aiDeleted.length) {
+      rows += '<div class="deleted-fold">'
+        + '<button class="deleted-toggle" data-action="toggle-deleted" type="button">已删除(' + aiDeleted.length + ')</button>'
+        + '<div class="deleted-strip" hidden>' + imageRowHtml(aiDeleted, "ai", "已删", 0) + '</div>'
+        + '</div>';
+    }
+    rows += '</div>';
+    return rows;
+  }
+
+  function taskVideoCol(item) {
+    var videos = (item.video_json || []).filter(function (v) { return v && (v.oss_url || v.url); });
+    var rows = '<div class="img-stack">';
+    if (videos.length) rows += videoRowHtml(videos);
+    else rows += '<div class="img-row empty-img"><span class="empty-thumb">源视频</span></div>';
+    rows += '<div class="img-row empty-img"><span class="empty-thumb">AI视频</span></div>';
+    rows += '</div>';
+    return rows;
+  }
+
+  function taskMediaRows(item) { return taskImageCol(item); }
+  function taskImageRows(item) { return taskImageCol(item); }
+
+  function videoRowHtml(videos) {
+    var tiles = videos.map(function (v) {
+      var src = v.oss_url || v.url || "";
+      var poster = v.poster || "";
+      var wh = v.width && v.height ? v.width + "x" + v.height : "视频";
+      return '<button class="img-tile video-tile" type="button" data-action="play-video" data-src="' + esc(src) + '" data-poster="' + esc(poster) + '" title="' + esc(wh) + '">'
+        + '<span class="video-play-ico">▶</span>'
+        + '<span class="tile-badge orig">视频</span>'
+        + '</button>';
+    }).join("");
+    return '<div class="img-row">' + tiles + '</div>';
   }
 
   function normalizeImages(list) {
@@ -439,15 +776,31 @@
     return [];
   }
 
-  function imageRowHtml(list, kind, label) {
-    var MAX = 5;
+  function imageRowHtml(list, kind, label, limit) {
+    var MAX = limit && limit > 0 ? limit : 999;
     if (!list.length) return '<div class="img-row empty-img"><span class="empty-thumb">' + label + '图</span></div>';
     var shown = list.slice(0, MAX);
     var overflow = list.length > MAX ? list.length - MAX : 0;
-    var tiles = shown.map(function (src) {
-      return '<button class="img-tile" type="button" data-action="preview-img" data-src="' + esc(src) + '" title="点击查看大图">'
-        + '<img src="' + esc(src) + '" loading="lazy" alt="">'
-        + '<span class="tile-badge ' + kind + '">' + label + '</span>'
+    var enc = encodeURIComponent(JSON.stringify(shown.map(function (s) {
+      var item = typeof s === "string" ? { src: s } : s;
+      return {
+        src: item.src || "",
+        kind: item.kind || kind,
+        label: label,
+        importId: item.importId || null,
+        imageType: item.imageType || "",
+        deleted: item.deleted || false,
+        promoted: item.promoted || false,
+      };
+    })));
+    var tiles = shown.map(function (src, idx) {
+      var it = typeof src === "string" ? { src: src } : src;
+      var realSrc = it.src || "";
+      var badgeLabel = it.promoted ? "源" : label;
+      var badgeKind = it.promoted ? "orig" : kind;
+      return '<button class="img-tile" type="button" data-action="preview-img" data-src="' + esc(realSrc) + '" data-items="' + enc + '" data-index="' + idx + '" title="点击查看大图">'
+        + '<img src="' + esc(realSrc) + '" loading="lazy" alt="">'
+        + '<span class="tile-badge ' + badgeKind + '">' + badgeLabel + '</span>'
         + '</button>';
     }).join("");
     if (overflow) tiles += '<span class="img-tile tile-more">+' + overflow + '</span>';
@@ -482,6 +835,26 @@
     return item.created_at.split(" ")[0];
   }
 
+  function timeFull(item) {
+    if (!item.created_at) return "-";
+    var created = (item.created_at || "").replace("T", " ").substring(0, 19);
+    var started = (item.started_at || "").replace("T", " ").substring(0, 19);
+    var finished = (item.finished_at || "").replace("T", " ").substring(0, 19);
+    var html = '<div class="time-block">'
+      + '<div class="time-line">创建: ' + esc(created) + '</div>';
+    if (started) html += '<div class="time-line">开始: ' + esc(started) + '</div>';
+    if (finished) {
+      html += '<div class="time-line">完成: ' + esc(finished) + '</div>';
+      if (started) html += '<div class="time-dur">耗时 ' + esc(dur(started, finished)) + '</div>';
+    } else if (item.status === "running") {
+      html += '<div class="time-dur">进行中…</div>';
+    } else if (item.status === "queued") {
+      html += '<div class="time-dur">排队中…</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function dur(a, b) {
     try {
       var d1 = new Date(a.replace(" ", "T"));
@@ -511,10 +884,37 @@
         + detailField("创建时间", t.created_at)
         + detailField("开始时间", t.started_at || "-")
         + detailField("完成时间", t.finished_at || "-")
+        + detailField("消费金豆", (t.bean_cost || 0) + " 金豆")
         + "</div>";
       html += '<h4 class="section-title-sm">原始标题</h4><div class="raw-text">' + esc(t.title || "-") + '</div>';
       if (t.cn_title) html += '<h4 class="section-title-sm">中文标题</h4><div class="raw-text">' + esc(t.cn_title) + '</div>';
       if (t.en_title) html += '<h4 class="section-title-sm">英文标题</h4><div class="raw-text">' + esc(t.en_title) + '</div>';
+      /* 图片 */
+      html += '<h4 class="section-title-sm">图片</h4>';
+      html += taskImageCol(t);
+      /* 视频 */
+      html += '<h4 class="section-title-sm">视频</h4>';
+      html += taskVideoCol(t);
+      /* 规格 */
+      var spec = t.spec_json || {};
+      var specKeys = Object.keys(spec);
+      if (specKeys.length) {
+        html += '<h4 class="section-title-sm">规格</h4><div class="spec-detail">';
+        specKeys.forEach(function (k) {
+          html += '<div class="spec-line"><span class="spec-k">' + esc(k) + '</span>:<span class="spec-v">' + esc(spec[k]) + '</span></div>';
+        });
+        html += '</div>';
+      }
+      /* 尺寸 */
+      var sz = t.size_json || {};
+      if (sz.length || sz.width || sz.height || sz.weight) {
+        html += '<h4 class="section-title-sm">尺寸 / 重量</h4><div class="spec-detail">';
+        if (sz.length) html += '<div class="spec-line"><span class="spec-k">长</span>:<span class="spec-v">' + esc(sz.length) + '</span></div>';
+        if (sz.width) html += '<div class="spec-line"><span class="spec-k">宽</span>:<span class="spec-v">' + esc(sz.width) + '</span></div>';
+        if (sz.height) html += '<div class="spec-line"><span class="spec-k">高</span>:<span class="spec-v">' + esc(sz.height) + '</span></div>';
+        if (sz.weight) html += '<div class="spec-line"><span class="spec-k">重量</span>:<span class="spec-v">' + esc(sz.weight) + 'g</span></div>';
+        html += '</div>';
+      }
       var logs = t.step_logs || {};
       if (Object.keys(logs).length) {
         html += '<h4 class="section-title-sm">步骤日志</h4><div class="step-logs">';
@@ -528,6 +928,26 @@
       }
       document.getElementById("taskDetailBody").innerHTML = html;
     } catch (e) { toast("加载任务详情失败: " + e.message); }
+  }
+
+  function openAdminVideo(src, poster) {
+    var modal = document.getElementById("adminVideoModal");
+    var video = document.getElementById("adminVideo");
+    if (!modal || !video) return;
+    video.src = src;
+    if (poster) video.poster = poster;
+    modal.style.display = "flex";
+    video.play().catch(function () {});
+  }
+
+  function closeAdminVideo() {
+    var modal = document.getElementById("adminVideoModal");
+    var video = document.getElementById("adminVideo");
+    if (!modal || !video) return;
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    modal.style.display = "none";
   }
 
   /* ══════════════════════════════════════
@@ -693,42 +1113,149 @@
     } catch (e) { toast("充值失败: " + e.message); }
   }
 
-  /* ── 图片预览 ── */
-  function previewImage(src) {
-    var overlay = document.createElement("div");
-    overlay.className = "img-preview-overlay";
-    overlay.innerHTML = '<img src="' + esc(src) + '" alt=""><button class="preview-close">关闭</button>';
-    overlay.onclick = function () { overlay.remove(); };
-    document.body.appendChild(overlay);
+  /* ── 图片灯箱预览(左右翻页) ── */
+  var lightboxItems = [];
+  var lightboxIndex = 0;
+
+  function previewImage(src, items, index) {
+    if (!items || !items.length) {
+      items = [{ src: src, kind: "orig", label: "源" }];
+    }
+    lightboxItems = items;
+    lightboxIndex = Math.max(0, Math.min(index || 0, items.length - 1));
+    showLightbox();
   }
+
+  function showLightbox() {
+    var overlay = document.getElementById("lightboxOverlay");
+    if (!overlay) return;
+    var img = document.getElementById("lightboxImg");
+    var counter = document.getElementById("lightboxCounter");
+    var badge = document.getElementById("lightboxBadge");
+    var toolbar = document.getElementById("lightboxToolbar");
+    var item = lightboxItems[lightboxIndex];
+    if (!item) return;
+    img.src = item.src;
+    counter.textContent = (lightboxIndex + 1) + " / " + lightboxItems.length;
+    var lbl = "";
+    if (item.kind === "orig") lbl = "源";
+    else if (item.deleted) lbl = "AI已删除";
+    else if (item.promoted) lbl = "源·转成品";
+    else lbl = "AI成品";
+    badge.textContent = lbl;
+    badge.className = "lb-badge" + (item.deleted ? " is-deleted" : "");
+    // 操作按钮
+    var iid = item.importId || "";
+    var btns = "";
+    if (item.kind === "orig" && iid) {
+      btns = '<button class="lb-tool promote" data-action="lb-promote" data-import-id="' + iid + '" data-src="' + esc(item.src) + '">用作成品</button>';
+    } else if (item.deleted && iid) {
+      btns = '<button class="lb-tool restore" data-action="lb-restore" data-import-id="' + iid + '" data-image-type="' + esc(item.imageType) + '">还原</button>';
+    } else if (item.kind === "ai" && iid) {
+      btns = '<button class="lb-tool delete" data-action="lb-delete" data-import-id="' + iid + '" data-image-type="' + esc(item.imageType) + '">删除</button>';
+    }
+    if (toolbar) toolbar.innerHTML = btns;
+    overlay.style.display = "flex";
+  }
+
+  async function aiImageAction(action, importId, payload) {
+    try {
+      await api("/api/admin/tasks/" + importId + "/ai-image/" + action, "POST", payload);
+      toast(action === "promote" ? "已用作成品图" : action === "delete" ? "已删除" : "已还原");
+      // 刷新当前任务详情/列表
+      if (state.view === "tasks") loadTasks();
+    } catch (err) { toast("操作失败: " + err.message); }
+  }
+
+  function closeLightbox() {
+    var overlay = document.getElementById("lightboxOverlay");
+    if (overlay) overlay.style.display = "none";
+    lightboxItems = [];
+    lightboxIndex = 0;
+  }
+
+  function shiftLightbox(delta) {
+    if (!lightboxItems.length) return;
+    lightboxIndex = (lightboxIndex + delta + lightboxItems.length) % lightboxItems.length;
+    showLightbox();
+  }
+
+  document.addEventListener("keydown", function (e) {
+    var lb = document.getElementById("lightboxOverlay");
+    if (!lb || lb.style.display === "none") return;
+    if (e.key === "ArrowLeft") shiftLightbox(-1);
+    if (e.key === "ArrowRight") shiftLightbox(1);
+    if (e.key === "Escape") closeLightbox();
+  });
 
   /* ── 事件委托 ── */
   document.addEventListener("click", async function (e) {
     var navEl = e.target.closest("[data-view]");
     if (navEl) { switchView(navEl.dataset.view); return; }
 
-    var action = e.target.dataset.action;
+    var jumpEl = e.target.closest("[data-jump]");
+    if (jumpEl) { handleMetricJump(jumpEl); return; }
+
+    var profileTabEl = e.target.closest("[data-profile-tab]");
+    if (profileTabEl) { switchProfileTab(profileTabEl.dataset.profileTab); return; }
+
+    var actionEl = e.target.closest("[data-action]");
+    var action = actionEl ? actionEl.dataset.action : null;
     if (action === "refresh") { switchView(state.view); toast("已刷新"); return; }
     if (action === "logout") { await api("/api/admin/auth/logout", "POST"); window.location.href = "/"; return; }
     if (action === "close-modal") { closeRecharge(); return; }
     if (action === "confirm-recharge") { confirmRecharge(); return; }
     if (action === "close-drawer") { hide("taskDetailDrawer"); return; }
-    if (action === "preview-img") { previewImage(e.target.dataset.src); return; }
+    if (action === "preview-img") {
+      var its = [];
+      try { its = JSON.parse(decodeURIComponent(actionEl.dataset.items || "[]")); } catch (ex) {}
+      if (!its.length) its = [{ src: actionEl.dataset.src, kind: "orig", label: "源" }];
+      previewImage(actionEl.dataset.src, its, Number(actionEl.dataset.index || 0));
+      return;
+    }
+    if (action === "lightbox-prev") { shiftLightbox(-1); return; }
+    if (action === "lightbox-next") { shiftLightbox(1); return; }
+    if (action === "lightbox-close") { closeLightbox(); return; }
+    if (action === "toggle-deleted") {
+      var strip = actionEl.nextElementSibling;
+      if (strip) {
+        if (strip.hasAttribute("hidden")) { strip.removeAttribute("hidden"); actionEl.classList.add("open"); }
+        else { strip.setAttribute("hidden", ""); actionEl.classList.remove("open"); }
+      }
+      return;
+    }
+    if (action === "lb-promote") {
+      await aiImageAction("promote", actionEl.dataset.importId, { source_url: actionEl.dataset.src });
+      closeLightbox();
+      return;
+    }
+    if (action === "lb-delete") {
+      await aiImageAction("delete", actionEl.dataset.importId, { image_type: actionEl.dataset.imageType });
+      closeLightbox();
+      return;
+    }
+    if (action === "lb-restore") {
+      await aiImageAction("restore", actionEl.dataset.importId, { image_type: actionEl.dataset.imageType });
+      closeLightbox();
+      return;
+    }
+    if (action === "play-video") { openAdminVideo(actionEl.dataset.src, actionEl.dataset.poster); return; }
+    if (action === "close-video") { closeAdminVideo(); return; }
 
     if (action === "back-list") { switchView(state.view); return; }
     if (action === "user-back") { show("usersListPanel"); hide("userDetailPanel"); document.getElementById("backBtn").style.display = "none"; return; }
     if (action === "ent-back") { show("entListPanel"); hide("entDetailPanel"); document.getElementById("backBtn").style.display = "none"; return; }
 
     /* billing tabs */
-    if (e.target.dataset.billingTab) { switchBillingTab(e.target.dataset.billingTab); return; }
+    if (actionEl.dataset.billingTab) { switchBillingTab(actionEl.dataset.billingTab); return; }
 
     /* ai tabs */
-    if (e.target.dataset.keyTab) { switchKeyModelTab(e.target.dataset.keyTab); return; }
+    if (actionEl.dataset.keyTab) { switchKeyModelTab(actionEl.dataset.keyTab); return; }
 
     /* pricing / ai actions */
     if (action === "add-pricing") { addPricing(); return; }
     if (action === "del-pricing") {
-      var pid = e.target.dataset.pid;
+      var pid = actionEl.dataset.pid;
       try {
         await api("/api/admin/pricing/" + pid, "DELETE");
         toast("已删除"); loadPricing();
@@ -737,12 +1264,12 @@
     }
     if (action === "refresh-keys") { loadKeyModel(); toast("已刷新"); return; }
     if (action === "add-keys") { addKeys(); return; }
-    if (action === "del-key") { delKey(e.target.dataset.provider, e.target.dataset.key); return; }
-    if (action === "revive-key") { reviveKey(e.target.dataset.provider, e.target.dataset.key); return; }
-    if (action === "clear-failed") { clearFailed(e.target.dataset.provider); return; }
+    if (action === "del-key") { delKey(actionEl.dataset.provider, actionEl.dataset.key); return; }
+    if (action === "revive-key") { reviveKey(actionEl.dataset.provider, actionEl.dataset.key); return; }
+    if (action === "clear-failed") { clearFailed(actionEl.dataset.provider); return; }
 
     /* monitoring tabs */
-    if (e.target.dataset.monitorTab) { switchMonitorTab(e.target.dataset.monitorTab); return; }
+    if (actionEl.dataset.monitorTab) { switchMonitorTab(actionEl.dataset.monitorTab); return; }
 
     /* 搜索 */
     if (action === "search-users") {
@@ -762,6 +1289,21 @@
       state.tasks.keyword = document.getElementById("taskSearch").value.trim();
       state.tasks.platform = document.getElementById("taskPlatform").value;
       state.tasks.status = document.getElementById("taskStatus").value;
+      state.tasks.account = document.getElementById("taskAccount").value.trim();
+      state.tasks.ref_code = document.getElementById("taskRefCode").value.trim();
+      state.tasks.date_from = document.getElementById("taskDateFrom").value;
+      state.tasks.date_to = document.getElementById("taskDateTo").value;
+      loadTasks(); return;
+    }
+    if (action === "reset-tasks") {
+      state.tasks = { page: 1, page_size: 20, total: 0, keyword: "", platform: "", status: "", account: "", ref_code: "", date_from: "", date_to: "" };
+      document.getElementById("taskSearch").value = "";
+      document.getElementById("taskAccount").value = "";
+      document.getElementById("taskRefCode").value = "";
+      document.getElementById("taskPlatform").value = "";
+      document.getElementById("taskStatus").value = "";
+      document.getElementById("taskDateFrom").value = "";
+      document.getElementById("taskDateTo").value = "";
       loadTasks(); return;
     }
     if (action === "search-tx") {
@@ -780,7 +1322,7 @@
       loadErrorTasks(); return;
     }
     if (action === "retry-one") {
-      var tid = e.target.dataset.tid;
+      var tid = actionEl.dataset.tid;
       try {
         await api("/api/admin/monitoring/errors/" + tid + "/retry", "POST");
         toast("已加入重试队列");
@@ -804,16 +1346,23 @@
     if (action === "refresh-queue") { loadQueueStatus(); toast("已刷新"); return; }
 
     /* 详情跳转 */
-    if (action === "user-detail") { showUserDetail(e.target.dataset.uid); return; }
-    if (action === "ent-detail") { showEnterpriseDetail(e.target.dataset.eid); return; }
-    if (action === "task-detail") { showTaskDetail(e.target.dataset.tid); return; }
+    if (action === "user-detail") { showUserDetail(actionEl.dataset.uid); return; }
+    if (action === "user-profile") { openUserProfile(actionEl.dataset.uid, actionEl.dataset.name); return; }
+    if (action === "toggle-live-feed") { toggleLiveFeed(); return; }
+    if (action === "close-profile") { hide("userProfileDrawer"); return; }
+    if (action === "profile-prev") { state.profileUser.page = Math.max(1, state.profileUser.page - 1); loadProfile(); return; }
+    if (action === "profile-next") { state.profileUser.page++; loadProfile(); return; }
+    if (actionEl.dataset.profileTab) { switchProfileTab(actionEl.dataset.profileTab); return; }
+    if (action === "ent-detail") { showEnterpriseDetail(actionEl.dataset.eid); return; }
+    if (action === "ent-ranking") { showEntRanking(actionEl.dataset.eid, actionEl.dataset.name); return; }
+    if (action === "task-detail") { showTaskDetail(actionEl.dataset.tid); return; }
 
     /* 充值 */
-    if (action === "recharge") { openRecharge(e.target.dataset.uid, e.target.dataset.name); return; }
+    if (action === "recharge") { openRecharge(actionEl.dataset.uid, actionEl.dataset.name); return; }
 
     /* 用户冻结/禁用 */
     if (["freeze", "unfreeze", "disable", "enable"].indexOf(action) >= 0) {
-      var uid = e.target.dataset.uid;
+      var uid = actionEl.dataset.uid;
       try {
         await api("/api/admin/users/" + uid + "/" + action, "POST");
         toast("操作成功"); loadUsers();
@@ -821,9 +1370,21 @@
       return;
     }
 
+    /* 用户删除(二次确认) */
+    if (action === "delete-user") {
+      var uid = actionEl.dataset.uid;
+      var uname = actionEl.dataset.name || "";
+      if (!confirm("确认删除用户「" + uname + "」(ID:" + uid + ")？\n\n该用户将被踢出系统(无法登录)，但所有历史数据完整保留。\n该手机号可重新注册新账号。")) return;
+      try {
+        await api("/api/admin/users/" + uid, "DELETE");
+        toast("用户已移出系统，历史数据已归档"); loadUsers();
+      } catch (err) { toast("删除失败: " + err.message); }
+      return;
+    }
+
     /* 企业冻结 */
     if (action === "ent-freeze" || action === "ent-unfreeze") {
-      var eid = e.target.dataset.eid;
+      var eid = actionEl.dataset.eid;
       var real = action === "ent-freeze" ? "freeze" : "unfreeze";
       try {
         await api("/api/admin/enterprises/" + eid + "/" + real, "POST");

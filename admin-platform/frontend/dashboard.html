@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>超级管理员系统 · 工作台</title>
-  <link rel="stylesheet" href="/assets/css/admin.css?v=admin07reason">
+  <link rel="stylesheet" href="/assets/css/admin.css?v=admin28softdel">
 </head>
 <body class="app-shell">
   <aside class="sidebar">
@@ -44,21 +44,41 @@
     <!-- ═══ 运营驾驶舱 ═══ -->
     <section id="view-dashboard" class="view-panel active">
       <div class="metric-grid" id="metricGrid">
-        <article class="metric-card"><span>总用户</span><strong id="statUsers">-</strong></article>
-        <article class="metric-card"><span>总企业</span><strong id="statEnt">-</strong></article>
-        <article class="metric-card"><span>今日采集</span><strong id="statToday">-</strong></article>
-        <article class="metric-card"><span>总任务</span><strong id="statTotal">-</strong></article>
-        <article class="metric-card"><span>已完成</span><strong id="statDone">-</strong></article>
-        <article class="metric-card"><span>进行中</span><strong id="statRunning">-</strong></article>
-        <article class="metric-card"><span>失败</span><strong id="statFailed">-</strong></article>
-        <article class="metric-card"><span>充值金豆</span><strong id="statRecharge">-</strong></article>
-        <article class="metric-card"><span>消费金豆</span><strong id="statConsume">-</strong></article>
+        <article class="metric-card clickable" data-jump="users"><span>总用户</span><strong id="statUsers">-</strong></article>
+        <article class="metric-card clickable" data-jump="enterprises"><span>总企业</span><strong id="statEnt">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>总任务</span><strong id="statTotal">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>已完成</span><strong id="statDone">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>进行中</span><strong id="statRunning">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>失败</span><strong id="statFailed">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>今日采集</span><strong id="statToday">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>今日已完成</span><strong id="statTodayDone">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>今日进行中</span><strong id="statTodayRunning">-</strong></article>
+        <article class="metric-card clickable" data-jump="tasks"><span>今日失败</span><strong id="statTodayError">-</strong></article>
+        <article class="metric-card clickable" data-jump="billing"><span>充值金豆</span><strong id="statRecharge">-</strong></article>
+        <article class="metric-card clickable" data-jump="billing"><span>消费金豆</span><strong id="statConsume">-</strong></article>
       </div>
-      <div class="content-grid">
-        <section class="card">
-          <div class="card-head"><h3>企业消费排行</h3></div>
-          <div id="rankingList" class="ranking-list"></div>
-        </section>
+      <!-- 实时任务流 -->
+      <div class="live-feed-section">
+        <div class="live-feed-head">
+          <h3>实时任务动态</h3>
+          <span class="live-dot"></span>
+          <span class="live-label">实时更新</span>
+          <button class="ghost-btn live-pause-btn" data-action="toggle-live-feed">暂停</button>
+        </div>
+        <div class="table-wrap live-feed-table">
+          <table class="data-table">
+            <colgroup>
+              <col style="width:110px"><col style="width:60px"><col style="width:220px"><col style="width:65px">
+              <col style="width:auto"><col style="width:120px"><col style="width:60px"><col style="width:170px"><col style="width:65px">
+            </colgroup>
+            <thead>
+              <tr>
+                <th>用户/企业</th><th>来源</th><th>商品标题</th><th>状态</th><th>图片</th><th>视频</th><th>金豆</th><th>时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="liveFeedBody"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -68,10 +88,11 @@
         <div class="toolbar">
           <input type="text" id="userSearch" class="search-input" placeholder="搜索手机号 / UID">
           <select id="userStatus" class="filter-select">
-            <option value="">全部状态</option>
+            <option value="">全部用户</option>
             <option value="active">正常</option>
             <option value="frozen">已冻结</option>
             <option value="disabled">已禁用</option>
+            <option value="deleted">已删除</option>
           </select>
           <button class="btn-primary" data-action="search-users">搜索</button>
         </div>
@@ -94,6 +115,22 @@
           <button class="ghost-btn" data-action="user-back">← 返回用户列表</button>
         </div>
         <div id="userDetailBody"></div>
+      </div>
+      <!-- 用户完整档案抽屉 -->
+      <div id="userProfileDrawer" class="drawer" style="display:none">
+        <div class="drawer-card drawer-wide">
+          <div class="drawer-head">
+            <h3 id="profileDrawerTitle">用户完整档案</h3>
+            <button class="ghost-btn" data-action="close-profile">关闭</button>
+          </div>
+          <div class="profile-tabs">
+            <button class="profile-tab active" data-profile-tab="info">基本信息</button>
+            <button class="profile-tab" data-profile-tab="tasks">任务记录</button>
+            <button class="profile-tab" data-profile-tab="transactions">金豆流水</button>
+            <button class="profile-tab" data-profile-tab="orders">充值订单</button>
+          </div>
+          <div id="profileBody"></div>
+        </div>
       </div>
     </section>
 
@@ -146,51 +183,50 @@
 
     <!-- ═══ 任务监控（富表格，同主应用工作台） ═══ -->
     <section id="view-tasks" class="view-panel">
-      <div class="toolbar">
-        <input type="text" id="taskSearch" class="search-input" placeholder="搜索标题 / 商品ID / 中文名">
-        <select id="taskPlatform" class="filter-select">
-          <option value="">全部平台</option>
-          <option value="temu">TEMU</option>
-          <option value="1688">1688</option>
-          <option value="ozon">OZON</option>
-        </select>
-        <select id="taskStatus" class="filter-select">
-          <option value="">全部状态</option>
-          <option value="done">已完成</option>
-          <option value="error">失败</option>
-          <option value="running">运行中</option>
-          <option value="queued">排队中</option>
-        </select>
-        <button class="btn-primary" data-action="search-tasks">搜索</button>
+      <div class="toolbar toolbar-multiline">
+        <div class="toolbar-row">
+          <input type="text" id="taskSearch" class="search-input" placeholder="搜索标题 / 商品ID / 中文名 / 错误信息">
+          <input type="text" id="taskAccount" class="search-input" placeholder="用户账号 / UID / 昵称" style="width:200px">
+          <input type="text" id="taskRefCode" class="search-input" placeholder="链接编号" style="width:140px">
+          <select id="taskPlatform" class="filter-select">
+            <option value="">全部平台</option>
+            <option value="temu">TEMU</option>
+            <option value="1688">1688</option>
+            <option value="ozon">OZON</option>
+          </select>
+          <select id="taskStatus" class="filter-select">
+            <option value="">全部状态</option>
+            <option value="done">已完成</option>
+            <option value="error">失败</option>
+            <option value="queued">排队中</option>
+            <option value="running">运行中</option>
+            <option value="translating">翻译中</option>
+            <option value="generating">生成中</option>
+            <option value="pending">待处理</option>
+          </select>
+        </div>
+        <div class="toolbar-row">
+          <label class="date-label">起始 <input type="date" id="taskDateFrom" class="date-input"></label>
+          <label class="date-label">截止 <input type="date" id="taskDateTo" class="date-input"></label>
+          <button class="btn-primary" data-action="search-tasks">搜索</button>
+          <button class="ghost-btn" data-action="reset-tasks">重置</button>
+        </div>
       </div>
       <div class="table-wrap tasks-rich-table">
         <table class="data-table">
           <colgroup>
-            <col style="width:60px"><col style="width:220px"><col style="width:80px">
-            <col style="width:440px"><col style="width:60px"><col style="width:80px">
-            <col style="width:100px"><col style="width:100px">
+            <col style="width:110px"><col style="width:60px"><col style="width:220px"><col style="width:65px">
+            <col style="width:auto"><col style="width:120px"><col style="width:60px"><col style="width:170px"><col style="width:65px">
           </colgroup>
           <thead>
             <tr>
-              <th>用户/企业</th><th>商品标题</th><th>状态</th><th>图片</th>
-              <th>规格</th><th>尺寸</th><th>耗时</th><th>操作</th>
+              <th>用户/企业</th><th>来源</th><th>商品标题</th><th>状态</th><th>图片</th><th>视频</th><th>金豆</th><th>时间</th><th>操作</th>
             </tr>
           </thead>
           <tbody id="tasksBody"></tbody>
         </table>
       </div>
       <div class="pager" id="tasksPager"></div>
-
-      <!-- 任务详情抽屉 -->
-      <div id="taskDetailDrawer" class="drawer" style="display:none">
-        <div class="drawer-card">
-          <div class="drawer-head">
-            <h3>任务详情</h3>
-            <button class="ghost-btn" data-action="close-drawer">关闭</button>
-          </div>
-          <div id="taskDetailBody"></div>
-        </div>
-      </div>
     </section>
 
     <!-- ═══ 计费财务 ═══ -->
@@ -387,6 +423,37 @@
     </div>
   </div>
 
-  <script src="/assets/js/app.js?v=admin07reason"></script>
+  <!-- ═══ 全局弹层(脱离 view-panel, 任意视图可用) ═══ -->
+  <!-- 任务详情抽屉 -->
+  <div id="taskDetailDrawer" class="drawer" style="display:none">
+    <div class="drawer-card">
+      <div class="drawer-head">
+        <h3>任务详情</h3>
+        <button class="ghost-btn" data-action="close-drawer">关闭</button>
+      </div>
+      <div id="taskDetailBody"></div>
+    </div>
+  </div>
+  <!-- 视频播放弹窗 -->
+  <div id="adminVideoModal" class="img-preview-overlay" style="display:none">
+    <video id="adminVideo" controls style="max-width:90vw;max-height:90vh;border-radius:8px;background:#000"></video>
+    <button class="preview-close" data-action="close-video">关闭</button>
+  </div>
+  <!-- 图片灯箱(左右翻页) -->
+  <div id="lightboxOverlay" class="lightbox-overlay" style="display:none">
+    <button class="lb-nav lb-prev" data-action="lightbox-prev" aria-label="上一张">&lsaquo;</button>
+    <div class="lb-content">
+      <img id="lightboxImg" alt="预览">
+      <div class="lb-footer">
+        <span id="lightboxBadge" class="lb-badge"></span>
+        <span id="lightboxCounter" class="lb-counter"></span>
+      </div>
+      <div id="lightboxToolbar" class="lb-toolbar"></div>
+    </div>
+    <button class="lb-nav lb-next" data-action="lightbox-next" aria-label="下一张">&rsaquo;</button>
+    <button class="preview-close" data-action="lightbox-close">关闭</button>
+  </div>
+
+  <script src="/assets/js/app.js?v=admin28softdel"></script>
 </body>
 </html>
