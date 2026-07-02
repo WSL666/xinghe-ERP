@@ -1,0 +1,37 @@
+[Unit]
+Description=Platform Admin (Level 1 超管后台)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/workspace/wsl-workplace/admin-platform/backend
+
+# 复用主应用 conda 环境
+Environment="PATH=/root/miniconda3/envs/wsl-test/bin:/usr/local/bin:/usr/bin:/bin"
+
+# ── 端口与密钥（生产环境务必修改 ADMIN_SECRET_KEY / ADMIN_DEFAULT_PASSWORD）──
+Environment="ADMIN_PORT=6689"
+Environment="APP_ENV=production"
+Environment="ADMIN_SECRET_KEY=CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+Environment="ADMIN_DEFAULT_USERNAME=admin"
+Environment="ADMIN_DEFAULT_PASSWORD=CHANGE_ME_FIRST_LOGIN"
+
+# 共享主应用的 PostgreSQL 连接串
+Environment="DATABASE_URL=postgresql://product_pipeline_user:product_pipeline_dev_password@127.0.0.1:5433/product_pipeline"
+
+# 可选 IP 白名单（CIDR），留空则不限制
+Environment="ADMIN_ALLOW_CIDR="
+
+ExecStart=/root/miniconda3/envs/wsl-test/bin/uvicorn main:app --host 127.0.0.1 --port 6689
+
+Restart=always
+RestartSec=3
+
+# 日志
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=admin-platform
+
+[Install]
+WantedBy=multi-user.target

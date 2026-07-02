@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>超级管理员系统 · 工作台</title>
+  <link rel="stylesheet" href="/assets/css/admin.css?v=admin02">
+</head>
+<body class="app-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <strong>超级管理员</strong>
+      <small>超级管理员 · 全局管控</small>
+    </div>
+    <nav class="side-nav" aria-label="主导航">
+      <button class="nav-item active" data-view="dashboard">运营驾驶舱</button>
+      <button class="nav-item" data-view="users">用户管理</button>
+      <button class="nav-item" data-view="enterprises">企业管理</button>
+      <button class="nav-item" data-view="tasks">任务监控</button>
+      <button class="nav-item" data-view="billing">计费财务</button>
+      <button class="nav-item" data-view="monitoring">监控中心</button>
+      <button class="nav-item" data-view="audit">安全审计</button>
+    </nav>
+    <div class="sidebar-footer">
+      <span id="adminName" class="admin-name">超管</span>
+      <button class="ghost-btn" data-action="logout">退出</button>
+    </div>
+  </aside>
+
+  <section class="workspace">
+    <header class="topbar">
+      <div>
+        <p id="pageEyebrow" class="eyebrow">总览</p>
+        <h1 id="pageTitle">运营驾驶舱</h1>
+      </div>
+      <div class="top-actions">
+        <button class="ghost-btn" data-action="refresh">刷新</button>
+        <button class="ghost-btn" data-action="back-list" id="backBtn" style="display:none">返回列表</button>
+      </div>
+    </header>
+
+    <!-- ═══ 运营驾驶舱 ═══ -->
+    <section id="view-dashboard" class="view-panel active">
+      <div class="metric-grid" id="metricGrid">
+        <article class="metric-card"><span>总用户</span><strong id="statUsers">-</strong></article>
+        <article class="metric-card"><span>总企业</span><strong id="statEnt">-</strong></article>
+        <article class="metric-card"><span>今日采集</span><strong id="statToday">-</strong></article>
+        <article class="metric-card"><span>总任务</span><strong id="statTotal">-</strong></article>
+        <article class="metric-card"><span>已完成</span><strong id="statDone">-</strong></article>
+        <article class="metric-card"><span>进行中</span><strong id="statRunning">-</strong></article>
+        <article class="metric-card"><span>失败</span><strong id="statFailed">-</strong></article>
+        <article class="metric-card"><span>充值金豆</span><strong id="statRecharge">-</strong></article>
+        <article class="metric-card"><span>消费金豆</span><strong id="statConsume">-</strong></article>
+      </div>
+      <div class="content-grid">
+        <section class="card">
+          <div class="card-head"><h3>企业消费排行</h3></div>
+          <div id="rankingList" class="ranking-list"></div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ═══ 用户管理 ═══ -->
+    <section id="view-users" class="view-panel">
+      <div id="usersListPanel">
+        <div class="toolbar">
+          <input type="text" id="userSearch" class="search-input" placeholder="搜索手机号 / UID">
+          <select id="userStatus" class="filter-select">
+            <option value="">全部状态</option>
+            <option value="active">正常</option>
+            <option value="frozen">已冻结</option>
+            <option value="disabled">已禁用</option>
+          </select>
+          <button class="btn-primary" data-action="search-users">搜索</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="usersTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>手机号</th><th>UID</th><th>昵称</th><th>企业</th>
+                <th>金豆</th><th>任务数</th><th>状态</th><th>注册时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="usersBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="usersPager"></div>
+      </div>
+      <!-- 用户详情页 -->
+      <div id="userDetailPanel" style="display:none">
+        <div class="detail-header">
+          <button class="ghost-btn" data-action="user-back">← 返回用户列表</button>
+        </div>
+        <div id="userDetailBody"></div>
+      </div>
+    </section>
+
+    <!-- ═══ 企业管理 ═══ -->
+    <section id="view-enterprises" class="view-panel">
+      <div id="entListPanel">
+        <div class="toolbar">
+          <input type="text" id="entSearch" class="search-input" placeholder="搜索企业名称">
+          <select id="entStatus" class="filter-select">
+            <option value="">全部状态</option>
+            <option value="approved">已通过</option>
+            <option value="pending">待审核</option>
+            <option value="rejected">已拒绝</option>
+          </select>
+          <button class="btn-primary" data-action="search-ent">搜索</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="entTable">
+            <thead>
+              <tr>
+                <th>ID</th><th>企业名称</th><th>套餐</th><th>成员数</th>
+                <th>任务数</th><th>状态</th><th>联系人</th><th>创建时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="entBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="entPager"></div>
+      </div>
+      <!-- 企业详情 + 成员 -->
+      <div id="entDetailPanel" style="display:none">
+        <div class="detail-header">
+          <button class="ghost-btn" data-action="ent-back">← 返回企业列表</button>
+        </div>
+        <div id="entDetailBody"></div>
+        <h3 class="section-title">企业成员</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>手机号</th><th>UID</th><th>昵称</th><th>角色</th>
+                <th>金豆</th><th>任务数</th><th>成功</th><th>失败</th><th>最后活跃</th><th>状态</th>
+              </tr>
+            </thead>
+            <tbody id="entMembersBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 任务监控（富表格，同主应用工作台） ═══ -->
+    <section id="view-tasks" class="view-panel">
+      <div class="toolbar">
+        <input type="text" id="taskSearch" class="search-input" placeholder="搜索标题 / 商品ID / 中文名">
+        <select id="taskPlatform" class="filter-select">
+          <option value="">全部平台</option>
+          <option value="temu">TEMU</option>
+          <option value="1688">1688</option>
+          <option value="ozon">OZON</option>
+        </select>
+        <select id="taskStatus" class="filter-select">
+          <option value="">全部状态</option>
+          <option value="done">已完成</option>
+          <option value="error">失败</option>
+          <option value="running">运行中</option>
+          <option value="queued">排队中</option>
+        </select>
+        <button class="btn-primary" data-action="search-tasks">搜索</button>
+      </div>
+      <div class="table-wrap tasks-rich-table">
+        <table class="data-table">
+          <colgroup>
+            <col style="width:60px"><col style="width:220px"><col style="width:80px">
+            <col style="width:440px"><col style="width:60px"><col style="width:80px">
+            <col style="width:100px"><col style="width:100px">
+          </colgroup>
+          <thead>
+            <tr>
+              <th>用户/企业</th><th>商品标题</th><th>状态</th><th>图片</th>
+              <th>规格</th><th>尺寸</th><th>耗时</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tasksBody"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="tasksPager"></div>
+
+      <!-- 任务详情抽屉 -->
+      <div id="taskDetailDrawer" class="drawer" style="display:none">
+        <div class="drawer-card">
+          <div class="drawer-head">
+            <h3>任务详情</h3>
+            <button class="ghost-btn" data-action="close-drawer">关闭</button>
+          </div>
+          <div id="taskDetailBody"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 计费财务 ═══ -->
+    <section id="view-billing" class="view-panel">
+      <div class="metric-grid" id="billingMetrics">
+        <article class="metric-card"><span>充值总额</span><strong id="bRecharge">-</strong></article>
+        <article class="metric-card"><span>消费总额</span><strong id="bConsume">-</strong></article>
+        <article class="metric-card"><span>净额</span><strong id="bNet">-</strong></article>
+        <article class="metric-card"><span>今日充值</span><strong id="bTodayRe">-</strong></article>
+        <article class="metric-card"><span>今日消费</span><strong id="bTodayCo">-</strong></article>
+        <article class="metric-card"><span>流水笔数</span><strong id="bTxCount">-</strong></article>
+        <article class="metric-card"><span>充值订单</span><strong id="bOrderCount">-</strong></article>
+      </div>
+
+      <div class="billing-tabs">
+        <button class="billing-tab active" data-billing-tab="transactions">金豆流水</button>
+        <button class="billing-tab" data-billing-tab="orders">充值订单</button>
+      </div>
+
+      <div id="billingTab-transactions" class="billing-panel">
+        <div class="toolbar">
+          <input type="number" id="txUserId" class="search-input" placeholder="按用户ID筛选（可选）" style="max-width:160px">
+          <select id="txDirection" class="filter-select">
+            <option value="">全部类型</option>
+            <option value="recharge">充值</option>
+            <option value="consume">消费</option>
+          </select>
+          <button class="btn-primary" data-action="search-tx">搜索</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>用户</th><th>企业</th><th>类型</th><th>金额</th>
+                <th>余额</th><th>原因</th><th>时间</th>
+              </tr>
+            </thead>
+            <tbody id="txBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="txPager"></div>
+      </div>
+
+      <div id="billingTab-orders" class="billing-panel" style="display:none">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>ID</th><th>用户</th><th>金豆数</th><th>金额(元)</th>
+                <th>方式</th><th>状态</th><th>操作人</th><th>备注</th><th>时间</th>
+              </tr>
+            </thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="ordersPager"></div>
+      </div>
+    </section>
+
+    <!-- ═══ 安全审计 ═══ -->
+    <!-- ═══ 监控中心 ═══ -->
+    <section id="view-monitoring" class="view-panel">
+      <div class="monitor-tabs">
+        <button class="monitor-tab active" data-monitor-tab="errors">错误中心</button>
+        <button class="monitor-tab" data-monitor-tab="queue">队列监控</button>
+      </div>
+
+      <div id="monitorTab-errors" class="monitor-panel">
+        <div class="metric-grid" id="errorMetrics">
+          <article class="metric-card"><span>总失败</span><strong id="errTotal">-</strong></article>
+          <article class="metric-card"><span>今日失败</span><strong id="errToday">-</strong></article>
+          <article class="metric-card"><span>TEMU失败</span><strong id="errTemu">-</strong></article>
+          <article class="metric-card"><span>受影响用户</span><strong id="errUsers">-</strong></article>
+        </div>
+        <h3 class="section-title">错误分类</h3>
+        <div id="errorBreakdown" class="breakdown-list"></div>
+        <div class="toolbar">
+          <select id="errPlatform" class="filter-select">
+            <option value="">全部平台</option>
+            <option value="temu">TEMU</option>
+            <option value="1688">1688</option>
+            <option value="ozon">OZON</option>
+          </select>
+          <input type="text" id="errKeyword" class="search-input" placeholder="搜索标题/错误信息">
+          <button class="btn-primary" data-action="search-errors">搜索</button>
+          <button class="ghost-btn" data-action="batch-retry-errors">批量重试选中</button>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th style="width:40px"><input type="checkbox" id="errSelectAll"></th>
+                <th>ID</th><th>标题</th><th>平台</th><th>用户</th>
+                <th>错误信息</th><th>时间</th><th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="errBody"></tbody>
+          </table>
+        </div>
+        <div class="pager" id="errPager"></div>
+      </div>
+
+      <div id="monitorTab-queue" class="monitor-panel" style="display:none">
+        <div class="metric-grid">
+          <article class="metric-card"><span>队列深度</span><strong id="qDepth">-</strong></article>
+          <article class="metric-card"><span>正在运行</span><strong id="qActive">-</strong></article>
+          <article class="metric-card"><span>活跃用户数</span><strong id="qActiveUsers">-</strong></article>
+          <article class="metric-card"><span>Redis</span><strong id="qRedis">-</strong></article>
+        </div>
+        <div class="queue-toolbar">
+          <button class="btn-primary" data-action="refresh-queue">刷新队列</button>
+          <span class="auto-refresh-hint">每5秒自动刷新</span>
+        </div>
+        <div class="queue-grid">
+          <div class="card">
+            <div class="card-head"><h3>排队中的任务</h3></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>用户ID</th><th>任务ID</th></tr></thead>
+                <tbody id="queueItemsBody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3>各用户运行中</h3></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>用户ID</th><th>运行数</th></tr></thead>
+                <tbody id="activeUsersBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ 安全审计 ═══ -->
+    <section id="view-audit" class="view-panel">
+      <div class="table-wrap">
+        <table class="data-table" id="auditTable">
+          <thead>
+            <tr>
+              <th>ID</th><th>操作人</th><th>动作</th><th>目标类型</th>
+              <th>目标ID</th><th>详情</th><th>IP</th><th>时间</th>
+            </tr>
+          </thead>
+          <tbody id="auditBody"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="auditPager"></div>
+    </section>
+  </section>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- 充值弹窗 -->
+  <div id="rechargeModal" class="modal" style="display:none">
+    <div class="modal-card">
+      <h3>金豆充值</h3>
+      <p id="rechargeTarget" class="modal-sub"></p>
+      <label><span>数量</span><input type="number" id="rechargeAmount" min="1" value="100"></label>
+      <label><span>备注</span><input type="text" id="rechargeNote" placeholder="选填"></label>
+      <div class="modal-actions">
+        <button class="ghost-btn" data-action="close-modal">取消</button>
+        <button class="btn-primary" data-action="confirm-recharge">确认充值</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/assets/js/app.js?v=admin02"></script>
+</body>
+</html>

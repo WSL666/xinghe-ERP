@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>超级管理员系统 · 登录</title>
+  <link rel="stylesheet" href="/assets/css/admin.css?v=admin01">
+</head>
+<body class="login-page">
+  <div class="login-card">
+    <div class="login-brand">
+      <h1>超级管理员系统</h1>
+      <p>仅限超级管理员访问</p>
+    </div>
+    <form id="loginForm" class="login-form">
+      <label>
+        <span>用户名</span>
+        <input type="text" id="username" name="username" autocomplete="username" required>
+      </label>
+      <label>
+        <span>密码</span>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="btn-primary btn-block">登录</button>
+      <p id="loginError" class="login-error"></p>
+    </form>
+  </div>
+  <script src="/assets/js/login.js?v=admin01"></script>
+</body>
+</html>
