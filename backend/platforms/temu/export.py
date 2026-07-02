@@ -64,7 +64,12 @@ def _build_sku_rows(raw_import: dict[str, Any], cn_title: str, en_title: str,
     skus = raw_import.get("skus", [])
     product_data = raw_import.get("product", {})
 
-    raw_props = product_data.get("productProps", [])
+    # 导出时用最新 attr_db 重新补全属性(不读入库时的冻结快照)。
+    # 这样:① 升级 attr_db.json 后老数据无需迁移, 下次导出自动用新库;
+    #       ② templatePid 按本产品 categoryId 取类目专用值, 店小秘才能配对成功。
+    from platforms.temu.attr_enrich import enrich_product_props
+    enriched_props, _hit, _total = enrich_product_props(product_data, category_id)
+    raw_props = enriched_props
     # 店小秘要求产品属性 JSON 为紧凑格式(无多余空格), 且 pid/refPid/templatePid
     # 为数字类型(无引号), vid 为字符串。空值保持空字符串。
     def _int_or_empty(v):

@@ -234,6 +234,7 @@ def init_db() -> None:
             ("finished_at", "TIMESTAMPTZ"),
             ("started_at", "TIMESTAMPTZ"),
             ("platform", "TEXT NOT NULL DEFAULT 'temu'"),
+            ("exported", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]:
             if not _column_exists(conn, "imports", col):
                 conn.execute(f"ALTER TABLE imports ADD COLUMN {col} {col_def}")
@@ -461,7 +462,7 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
         item["started_at"] = item["started_at"].strftime("%Y-%m-%d %H:%M:%S")
     if isinstance(item.get("finished_at"), datetime):
         item["finished_at"] = item["finished_at"].strftime("%Y-%m-%d %H:%M:%S")
-    for key in ("step2_done", "step3_done", "step4_done"):
+    for key in ("step2_done", "step3_done", "step4_done", "exported"):
         item[key] = 1 if item.get(key) else 0
     # ref_code: 用户uid+序号(如 aB3xK9mP1), 供展示和查询用
     owner_uid = item.pop("owner_uid", None) or ""
@@ -470,31 +471,58 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
     return item
 
 
-def list_imports(user_id: int, platform: str | None = None) -> list[dict[str, Any]]:
+def list_imports(user_id: int, platform: str | None = None, exported: bool = False) -> list[dict[str, Any]]:
+    """列出某用户的导入记录。
+
+    exported=False(默认): 只返回采集箱(未导出)的记录。
+    exported=True: 只返回已导出箱(已归档)的记录。
+    """
     with db_conn() as conn:
+        clauses = ["i.user_id = %s", "i.exported = %s"]
+        params: list = [user_id, exported]
         if platform:
-            rows = conn.execute(
-                """
-                SELECT i.*, u.uid AS owner_uid
-                FROM imports i
-                JOIN users u ON u.id = i.user_id
-                WHERE i.user_id = %s AND i.platform = %s
-                ORDER BY i.id DESC
-                """,
-                (user_id, platform),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT i.*, u.uid AS owner_uid
-                FROM imports i
-                JOIN users u ON u.id = i.user_id
-                WHERE i.user_id = %s
-                ORDER BY i.id DESC
-                """,
-                (user_id,),
-            ).fetchall()
+            clauses.append("i.platform = %s")
+            params.append(platform)
+        where = " AND ".join(clauses)
+        rows = conn.execute(
+            f"""
+            SELECT i.*, u.uid AS owner_uid
+            FROM imports i
+            JOIN users u ON u.id = i.user_id
+            WHERE {where}
+            ORDER BY i.id DESC
+            """,
+            tuple(params),
+        ).fetchall()
     return [_row_to_import(dict(row), compact=True) for row in rows]
+
+
+def mark_imports_exported(user_id: int, import_ids: list[int]) -> int:
+    """把记录标记为已导出(归档), 返回实际更新的行数。
+
+    只归档 status='done' 的记录: 运行中/排队中的不归档, 防止误移走。
+    """
+    if not import_ids:
+        return 0
+    with db_conn() as conn:
+        cur = conn.execute(
+            "UPDATE imports SET exported = TRUE, updated_at = now() "
+            "WHERE user_id = %s AND id = ANY(%s) AND status = 'done'",
+            (user_id, import_ids),
+        )
+    return cur.rowcount
+
+
+def unmark_imports_exported(user_id: int, import_ids: list[int]) -> int:
+    """把记录移回收采箱(取消已导出标记), 返回实际更新的行数。"""
+    if not import_ids:
+        return 0
+    with db_conn() as conn:
+        cur = conn.execute(
+            "UPDATE imports SET exported = FALSE, updated_at = now() WHERE user_id = %s AND id = ANY(%s)",
+            (user_id, import_ids),
+        )
+    return cur.rowcount
 
 
 def get_import(user_id: int, import_id: int, compact: bool = False) -> dict[str, Any] | None:

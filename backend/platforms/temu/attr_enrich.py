@@ -35,12 +35,13 @@ _values_db: dict[str, Any] = {}
 _refpid_db: dict[str, str] = {}
 _names_db: dict[str, str] = {}
 _default_tpid_db: dict[str, str] = {}
+_templates_db: dict[str, Any] = {}
 _loaded = False
 
 
 def _load_db() -> None:
     """加载 attr_db.json 到内存(进程级,只读一次)。"""
-    global _props_db, _values_db, _refpid_db, _names_db, _default_tpid_db, _loaded
+    global _props_db, _values_db, _refpid_db, _names_db, _default_tpid_db, _templates_db, _loaded
     if _loaded:
         return
     try:
@@ -51,12 +52,13 @@ def _load_db() -> None:
         _refpid_db = raw.get("refPid", {}) or {}
         _names_db = raw.get("names", {}) or {}
         _default_tpid_db = raw.get("defaultTemplatePid", {}) or {}
+        _templates_db = raw.get("templates", {}) or {}
         _loaded = True
         logger.info(
-            "attr_db loaded(schema=%s): %d props, %d values, %d refPid, %d names, %d defaultTemplatePid",
+            "attr_db loaded(schema=%s): %d props, %d values, %d refPid, %d names, %d defaultTemplatePid, %d templates",
             raw.get("schema", 1),
             len(_props_db), len(_values_db),
-            len(_refpid_db), len(_names_db), len(_default_tpid_db),
+            len(_refpid_db), len(_names_db), len(_default_tpid_db), len(_templates_db),
         )
     except Exception as exc:
         logger.warning("attr_db load failed: %s", exc)
@@ -65,6 +67,7 @@ def _load_db() -> None:
         _refpid_db = {}
         _names_db = {}
         _default_tpid_db = {}
+        _templates_db = {}
         _loaded = True
 
 
@@ -109,14 +112,26 @@ def _resolve_pid(p: dict[str, Any], pn: str) -> str:
     return ""
 
 
-def _resolve_template_pid(pid: str, p: dict[str, Any], pn: str) -> str:
-    """解析 templatePid: 用 defaultTemplatePid[pid] 兜底(频次最高)。"""
-    # 1) defaultTemplatePid(schema 2, 频次最高)
+def _resolve_template_pid(pid: str, p: dict[str, Any], pn: str, category_id: str = "") -> str:
+    """解析 templatePid: 优先类目专用 templates[cat][pid], 兜底全局频次 defaultTemplatePid[pid]。
+
+    同一个 pid 在不同类目下的 templatePid 不同(例如材质 pid=1 在指甲钳类目和餐具
+    类目的 templatePid 完全不一样)。店小秘按类目校验, 用全局频次最高的 templatePid
+    会落到错误的类目导致配对失败。因此必须优先用产品所属类目的专用 templatePid。
+    """
+    # 1) 类目专用(schema 2): templates[categoryId][pid] 最准
+    if pid and category_id and _templates_db:
+        cat_map = _templates_db.get(str(category_id))
+        if cat_map and isinstance(cat_map, dict):
+            hit = cat_map.get(pid)
+            if hit:
+                return str(hit)
+    # 2) 全局兜底(schema 2): defaultTemplatePid[pid] 该 pid 出现频次最高
     if pid and _default_tpid_db:
         hit = _default_tpid_db.get(pid)
         if hit:
             return str(hit)
-    # 2) props 兜底(兼容 schema 1, 里面也带 templatePid)
+    # 3) props 兜底(兼容 schema 1, 里面也带 templatePid)
     if pn:
         match = _props_db.get(pn)
         if match:
@@ -126,7 +141,7 @@ def _resolve_template_pid(pid: str, p: dict[str, Any], pn: str) -> str:
     return ""
 
 
-def enrich_product_props(product_data: dict[str, Any]) -> tuple[list[dict[str, Any]], int, int]:
+def enrich_product_props(product_data: dict[str, Any], category_id: str = "") -> tuple[list[dict[str, Any]], int, int]:
     """补全 product_data 里的 productProps 属性。
 
     返回 (enriched_props, hit_count, total_count):
@@ -164,7 +179,7 @@ def enrich_product_props(product_data: dict[str, Any]) -> tuple[list[dict[str, A
         hit_count += 1
 
         # 解析 templatePid
-        tpid = _resolve_template_pid(pid, p, pn)
+        tpid = _resolve_template_pid(pid, p, pn, category_id)
 
         # 解析 vid
         vid = str(p.get("vid", "") or "")

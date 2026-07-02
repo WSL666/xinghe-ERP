@@ -20,13 +20,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from platforms.temu.attr_enrich import enrich_product_props
 
 import pipeline_queue
 from security import create_session_token, load_session_token
 from store import (
     close_pool, delete_import, get_import, get_or_create_dev_user,
-    get_raw_import, get_user_by_api_key, get_user_by_id, init_db, open_pool,
+    get_raw_import, get_user_by_api_key, get_user_by_id, init_db, mark_imports_exported,
+    open_pool, unmark_imports_exported,
     insert_import, list_imports, update_status,
 )
 
@@ -71,6 +71,21 @@ async def _plugin_user(request: Request) -> dict[str, Any]:
     return user
 
 
+
+def _content_disposition(filename: str) -> dict:
+    """生成兼容中文文件名的 Content-Disposition 头。
+
+    Starlette/HTTP 头只能 latin-1 编码, 中文文件名直接放 filename= 会崩。
+    按 RFC 5987 用 filename*=UTF-8''<percent-encoded>, 同时给一个纯 ASCII
+    的 filename= 兜底(旧浏览器/工具不认 filename* 时用)。
+    """
+    from urllib.parse import quote
+    safe = filename.encode("ascii", "ignore").decode("ascii") or "export.xlsx"
+    if not safe.endswith(".xlsx"):
+        safe += ".xlsx"
+    return {"Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(filename)}'}
+
+
 @router.post("/import")
 async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     """插件采集入口:存库 → 入队。支持 session 登录或 API Key。"""
@@ -87,16 +102,8 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
     if not product_data or not skus:
         raise _err("missing product or skus", 400)
 
-    # 入库前用 attr_db 补全产品属性(pid/vid/templatePid)
-    # 这段逻辑以前在插件端,现在挪到后端(attr_db.json 不再打包进插件)
-    enriched_props, hit, total = enrich_product_props(product_data)
-    if enriched_props:
-        product_data = {**product_data, "productProps": enriched_props}
-        payload = {**payload, "product": product_data}
-        if total:
-            import logging
-            logging.getLogger("temu.import").info(
-                "attr_enrich: %d/%d props matched (import)", hit, total)
+    # 产品属性(pid/vid/templatePid)统一在导出时用最新 attr_db 补全,
+    # 入库只存采集端原始 propName/propValue/refPid, 避免存快照导致换库后老数据失效。
 
     # 金豆余额检查: 允许欠到-10, 余额 <= -10 时拒绝(防止无限欠费)
     try:
@@ -124,7 +131,8 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
 @router.get("/imports")
 async def temu_list_imports(platform: str | None = None, request: Request = None,
                             user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
-    return _ok(imports=list_imports(int(user["id"]), "temu"))
+    exported = (request.query_params.get("exported") in {"1", "true", "yes"}) if request else False
+    return _ok(imports=list_imports(int(user["id"]), platform, exported))
 
 
 @router.get("/imports/{import_id}")
@@ -200,11 +208,15 @@ async def temu_bulk_export(payload: dict[str, Any],
         raise _err("no ids provided", 400)
     uid = int(user["id"])
 
-    def _build_item(import_id: int) -> dict | None:
+    def _build_item(import_id: int) -> dict | tuple:
+        """构建导出条目。只导出 status==done 的, 未完成的返回跳过标记。"""
+        row = get_import(uid, import_id) or {}
+        status = str(row.get("status", "") or "")
+        if status != "done":
+            return ("skip", import_id)
         raw_import = get_raw_import(uid, import_id)
         if not raw_import:
-            return None
-        row = get_import(uid, import_id) or {}
+            return ("skip", import_id)
         cn = row.get("cn_title", "") or raw_import.get("product", {}).get("title", "")
         en = row.get("en_title", "")
         gj = row.get("generated_json", [])
@@ -212,20 +224,53 @@ async def temu_bulk_export(payload: dict[str, Any],
         return {"raw_import": raw_import, "cn_title": cn, "en_title": en, "generated": generated}
 
     items = []
+    skipped = []
     for import_id in ids:
         it = _build_item(import_id)
-        if it:
-            items.append(it)
+        if not it:
+            continue
+        if isinstance(it, tuple) and it[0] == "skip":
+            skipped.append(import_id)
+            continue
+        items.append(it)
     if not items:
-        raise _err("no valid imports found", 404)
+        raise _err("所选商品均未完成, 无法导出(请等待生图结束后再导)", 400)
 
     data = temu_export_xlsx_batch(items)
-    filename = f"bulk_export_{uid}.xlsx"
+    # 文件名: 导出时间_平台名(条数条), 如 2026711955_TEMU(10条)
+    from datetime import datetime
+    now = datetime.now()
+    ts = f"{now.year}{now.month}{now.day}{now:%H%M}"
+    platform = ""
+    for it in items:
+        pf = (it.get("raw_import") or {}).get("platform") or ""
+        if pf:
+            platform = pf.upper()
+            break
+    if not platform:
+        platform = "TEMU"
+    filename = f"{ts}_{platform}_{len(items)}.xlsx"
     return StreamingResponse(
         iter([data]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_content_disposition(filename),
     )
+
+
+@router.post("/imports/bulk/mark-exported")
+async def temu_bulk_mark_exported(payload: dict[str, Any],
+                                  user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """用户在文件保存框点「确定」后才调: 把已完成的标记为已导出(归档)。
+
+    只标记 status=done 的记录, 未完成的不会被归档。
+    返回实际归档数, 供前端提示。
+    """
+    uid = int(user["id"])
+    ids = [int(i) for i in payload.get("ids", []) if str(i).strip().lstrip("-").isdigit()]
+    if not ids:
+        raise _err("no ids provided", 400)
+    marked = mark_imports_exported(uid, ids)  # store 层内部只更新 done 的
+    return _ok(marked=marked, total=len(ids))
 
 
 @router.post("/imports/{import_id}/export")
@@ -241,12 +286,50 @@ async def temu_export(import_id: int,
     gj = row.get("generated_json", [])
     generated = gj if isinstance(gj, list) else []
     data = temu_export_xlsx(raw_import, cn, en, generated)
-    filename = f"final_result_{uid}_{import_id}.xlsx"
+    # 归档动作由前端在文件保存确认后单独调 /imports/bulk/mark-exported
+    # 文件名: 链接时间_链接id(ref_code), 如 2026711832_xTcarcjb6
+    from datetime import datetime
+    created_str = str(raw_import.get("createdAt") or "")
+    link_ts = ""
+    try:
+        link_ts = f"{datetime.strptime(created_str, '%Y-%m-%d %H:%M:%S'):%Y%-m%-d%H%M}".replace("%-", "")
+    except ValueError:
+        pass
+    if not link_ts:
+        # createdAt 缺失或格式不符时用 DB 记录的 created_at 兜底
+        try:
+            ca = str(row.get("created_at") or "")
+            dt = datetime.strptime(ca, "%Y-%m-%d %H:%M:%S")
+            link_ts = f"{dt.year}{dt.month}{dt.day}{dt:%H%M}"
+        except ValueError:
+            link_ts = created_str.replace("-", "").replace(":", "").replace(" ", "")[:12]
+    ref_code = str(row.get("ref_code") or import_id)
+    filename = f"{link_ts}_{ref_code}.xlsx"
     return StreamingResponse(
         iter([data]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=_content_disposition(filename),
     )
+
+
+@router.post("/imports/{import_id}/mark-exported")
+async def temu_mark_exported(import_id: int,
+                             user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """单个导出: 用户文件保存确认后调用, 标记为已导出(只标记 done 的)。"""
+    uid = int(user["id"])
+    marked = mark_imports_exported(uid, [import_id])
+    return _ok(import_id=import_id, marked=marked)
+
+
+@router.post("/imports/{import_id}/unexport")
+async def temu_unexport(import_id: int,
+                        user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """把已导出(归档)的记录移回收采箱。"""
+    uid = int(user["id"])
+    if not get_import(uid, import_id):
+        raise _err(f"import {import_id} not found", 404)
+    unmark_imports_exported(uid, [import_id])
+    return _ok(import_id=import_id, exported=False)
 
 
 @router.post("/imports/{import_id}/generate")

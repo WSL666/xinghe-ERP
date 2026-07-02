@@ -206,7 +206,7 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
                     except Exception:
                         pass
 
-        # 检查结果: 区分"key 失效"和"普通失败"
+        # 检查结果: 只分两种 — 有成功 / 全部失败
         has_key_error = any("key 失效" in (g.get("error") or "") or "401" in (g.get("error") or "") or "403" in (g.get("error") or "") for g in generated)
         has_timeout_error = any("exceeded" in (g.get("error") or "") or "timeout" in (g.get("error") or "").lower() for g in generated)
         all_failed = all(g.get("error") for g in generated)
@@ -221,31 +221,26 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
                 f"失败 {sum(1 for g in generated if g.get('error'))}")
             return generated
 
-        # 全部失败 + key 失效(401/403) → mark_failed → 换 key 重试
-        if all_failed and has_key_error:
-            log(f"[WARN] STEP4 key 失效(key=...{cur_key[-6:]}), mark_failed + 换 key 重试({key_round}/{MAX_KEY_ROUNDS})")
+        # ── 全部失败(不管什么原因)→ 反馈 key + 换 key 重试, 最多 MAX_KEY_ROUNDS 轮 ──
+        # 不再区分错误类型: 401/403=永久失效, 超时/400/其他=进冷却, 都换下一个 key 重试。
+        if all_failed:
+            if has_key_error:
+                reason, code = "all images failed with 401/403", 401
+            elif has_timeout_error:
+                reason, code = "all images timeout", None
+            else:
+                reason, code = "all images failed (model error 400/5xx etc)", None
+            log(f"[WARN] STEP4 全部失败(key=...{cur_key[-6:]}), reason={reason}, "
+                f"换 key 重试({key_round}/{MAX_KEY_ROUNDS})")
             if cur_key != fallback_key:
-                pool.mark_failed(cur_key, 401, error="all images failed with 401/403")
+                pool.mark_failed(cur_key, code, error=reason)
             if key_round < MAX_KEY_ROUNDS:
                 continue
-            # 3 轮 key 都失效 → 彻底失败
+            # 已是最后一轮 → 彻底失败, 抛异常让上层标 error(不再误标 done)
             generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
-            raise PipelineStepError("image generation failed: all keys failed (401/403)", {"key_rounds": key_round})
-
-        # 全部失败 + 超时 → mark_failed → 换 key 重试
-        if all_failed and has_timeout_error:
-            log(f"[WARN] STEP4 超时(key=...{cur_key[-6:]}), 换 key 重试({key_round}/{MAX_KEY_ROUNDS})")
-            if cur_key != fallback_key:
-                pool.mark_failed(cur_key, None, error="all images timeout")
-            if key_round < MAX_KEY_ROUNDS:
-                continue
-            generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
-            raise PipelineStepError("image generation failed: timeout on all keys", {"key_rounds": key_round})
-
-        # 全部失败 + 其他原因 → 直接返回(保留 error 信息)
-        generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)
-        log(f">>> STEP4 完成: 成功 {success_count}, 失败 {sum(1 for g in generated if g.get('error'))}")
-        return generated
+            raise PipelineStepError(
+                f"image generation failed after {MAX_KEY_ROUNDS} key rounds: {reason}",
+                {"key_rounds": key_round, "last_reason": reason})
 
     # 不应走到这里, 但防万一
     generated.sort(key=lambda r: int(r["image_type"].split("_")[1]) if "_" in r.get("image_type", "") else 0)

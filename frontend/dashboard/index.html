@@ -35,6 +35,17 @@
           </div>
         </div>
 
+        <div class="nav-group" id="exportedNavGroup">
+          <button class="nav-item nav-group-toggle" data-action="toggle-nav" type="button">
+            <span>已导出</span>
+          </button>
+          <div class="nav-sub">
+            <button class="nav-item nav-sub-item" data-view="exportedTemu" type="button">TEMU已导出</button>
+            <button class="nav-item nav-sub-item" data-view="exported1688" type="button">1688已导出</button>
+            <button class="nav-item nav-sub-item" data-view="exportedOzon" type="button">OZON已导出</button>
+          </div>
+        </div>
+
         <div class="nav-group" id="studioNavGroup">
           <button class="nav-item nav-group-toggle" data-action="toggle-nav" type="button">
             <span>AI创作中心</span>
@@ -140,7 +151,7 @@
                <button class="ghost-btn" id="batchBtn" type="button">批量处理 ▾</button>
                <div class="batch-menu" id="batchMenu" hidden>
                  <button type="button" data-batch="select-all">全选 / 取消全选</button>
-                 <button type="button" data-batch="export" id="batchExportBtn">批量导出 (XLXS)</button>
+                 <button type="button" data-batch="export" id="batchExportBtn">批量导出 (已完成)</button>
                  <button type="button" data-batch="delete" id="batchDeleteBtn" class="danger">批量删除</button>
                </div>
              </div>

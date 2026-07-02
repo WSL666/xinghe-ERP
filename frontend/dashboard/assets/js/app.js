@@ -41,12 +41,17 @@ state.composerAttachments = [];
 state.studioRefs = [];
 state.editTool = "background";
 state.editImage = null;
+// 勾选的商品 id 集合(独立于 DOM, 轮询刷新不丢失)
+state.selectedIds = new Set();
 
 const views = {
   dashboard: { title: "商品 AI 管线", eyebrow: "工作台" },
   products: { title: "TEMU采集箱", eyebrow: "商品采集箱" },
   box1688: { title: "1688采集箱", eyebrow: "商品采集箱" },
   boxOzon: { title: "OZON采集箱", eyebrow: "商品采集箱" },
+  exportedTemu: { title: "TEMU已导出", eyebrow: "已导出" },
+  exported1688: { title: "1688已导出", eyebrow: "已导出" },
+  exportedOzon: { title: "OZON已导出", eyebrow: "已导出" },
   recharge: { title: "钱包", eyebrow: "账户" },
   settings: { title: "设置", eyebrow: "配置" },
   agent: { title: "智能体", eyebrow: "AI创作中心" },
@@ -61,6 +66,9 @@ const views = {
 const PANEL_ALIAS = {
   box1688: "products",
   boxOzon: "products",
+  exportedTemu: "products",
+  exported1688: "products",
+  exportedOzon: "products",
 };
 /**
  * 每个采集箱对应的平台值（与后端 imports.platform 一致，统一小写）。
@@ -70,7 +78,12 @@ const PLATFORM_BY_VIEW = {
   products: "temu",
   box1688: "1688",
   boxOzon: "ozon",
+  exportedTemu: "temu",
+  exported1688: "1688",
+  exportedOzon: "ozon",
 };
+// 已导出箱视图集合(复用 products 面板, 但请求带 exported=true)
+const EXPORTED_VIEWS = { exportedTemu: true, exported1688: true, exportedOzon: true };
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
@@ -466,6 +479,13 @@ function renderVideoStrip(item) {
 
 function renderProducts() {
   const rows = filteredImports();
+  const prevChecked = state.selectedIds || new Set();
+  // 清掉已不存在的 id(被删除/筛选掉的)
+  const liveIds = new Set(rows.map((r) => Number(r.id)));
+  const isExported = !!EXPORTED_VIEWS[state.view];
+  for (const id of [...prevChecked]) {
+    if (!liveIds.has(id)) prevChecked.delete(id);
+  }
   $("#productRows").innerHTML = rows.length ? rows.map((item) => {
     const status = statusInfo(item);
     const origTitle = escapeHtml(item.title || "未命名商品");
@@ -474,7 +494,7 @@ function renderProducts() {
     const generated = generatedOk(item);
     return `
       <tr>
-        <td class="cell-check"><input type="checkbox" class="row-check" value="${item.id}"></td>
+        <td class="cell-check"><input type="checkbox" class="row-check" value="${item.id}" ${prevChecked.has(Number(item.id)) ? "checked" : ""}></td>
         <td>
           <div class="product-title">
             <div class="title-line title-orig" title="${origTitle}"><span>原</span>${origTitle}</div>
@@ -494,7 +514,7 @@ function renderProducts() {
             <button data-action="detail" data-id="${item.id}">详情</button>
             <button disabled>编辑</button>
             <button disabled>导入</button>
-            <button data-action="export" data-id="${item.id}" ${item.status !== "done" ? "disabled" : ""}>导出</button>
+            ${isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
             <button class="danger" data-action="delete" data-id="${item.id}">删除</button>
           </div>
         </td>
@@ -507,10 +527,16 @@ function renderAll() {
   renderStats();
   renderRecent();
   renderProducts();
+  // 同步表头全选框: 当前页全部勾选时才打勾
+  const liveCbs = document.querySelectorAll(".row-check");
+  const allChecked = liveCbs.length > 0 && Array.from(liveCbs).every((cb) => state.selectedIds.has(Number(cb.value)));
+  const selAll = $("#selectAll");
+  if (selAll) selAll.checked = allChecked;
   if (typeof updateBatchState === "function") updateBatchState();
 }
 
 function setView(name) {
+  const oldView = state.view;
   state.view = views[name] ? name : "dashboard";
   $$(".view-panel").forEach((panel) => panel.classList.remove("active"));
   const panelName = PANEL_ALIAS[state.view] || state.view;
@@ -519,8 +545,10 @@ function setView(name) {
   $("#pageTitle").textContent = views[state.view].title;
   $("#pageEyebrow").textContent = views[state.view].eyebrow;
   const prevPlatform = state.platform;
+  const prevIsExported = !!EXPORTED_VIEWS[oldView];
   state.platform = PLATFORM_BY_VIEW[state.view] || null;
-  if (panelName === "products" && prevPlatform !== state.platform) {
+  const nowIsExported = !!EXPORTED_VIEWS[state.view];
+  if (panelName === "products" && (prevPlatform !== state.platform || prevIsExported !== nowIsExported || oldView !== state.view)) {
     refreshData({ silent: true });
   }
   if (state.view === "recharge") updateRechargePanel();
@@ -574,7 +602,11 @@ async function updateRechargePanel() {
 
 async function refreshData({ silent = false } = {}) {
   try {
-    const url = state.platform ? `/api/temu/imports?platform=${encodeURIComponent(state.platform)}` : "/api/temu/imports";
+    const isExported = !!EXPORTED_VIEWS[state.view];
+    const qs = [];
+    if (state.platform) qs.push(`platform=${encodeURIComponent(state.platform)}`);
+    if (isExported) qs.push("exported=true");
+    const url = qs.length ? `/api/temu/imports?${qs.join("&")}` : "/api/temu/imports";
     const data = await apiFetch(url);
     state.imports = Array.isArray(data.imports) ? data.imports : [];
     setApiStatus("ok", "服务在线");
@@ -659,7 +691,6 @@ async function runStep(id, step) {
 }
 
 async function exportItem(id) {
-  if (!confirm(`确认导出商品 #${id} 吗？`)) return;
   const response = await fetch(apiUrl(`/api/temu/imports/${id}/export`), {
     method: "POST",
     credentials: "include"
@@ -687,6 +718,7 @@ async function exportItem(id) {
       await writable.write(blob);
       await writable.close();
       toast("导出已保存。");
+      await markExportedAfterSave(id);
       return;
     } catch (error) {
       if (error && error.name === "AbortError") {
@@ -704,6 +736,94 @@ async function exportItem(id) {
   link.remove();
   URL.revokeObjectURL(url);
   toast("导出已下载。");
+  await markExportedAfterSave(id);
+}
+
+async function markExportedAfterSave(id) {
+  // 文件保存确认后才归档(只标记 done 的)。失败不阻塞, 静默提示。
+  try {
+    const r = await apiFetch(`/api/temu/imports/${id}/mark-exported`, { method: "POST" });
+    if (r && r.marked) {
+      state.selectedIds && state.selectedIds.delete(Number(id));
+      await refreshData({ silent: true });
+    }
+  } catch {}
+}
+
+async function reexportItem(id) {
+  // 已导出箱里"重新导出": 走单条导出(不改变 exported 状态, 仍是已导出)
+  const response = await fetch(apiUrl(`/api/temu/imports/${id}/export`), {
+    method: "POST",
+    credentials: "include"
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || `Export failed: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const star = (disposition.match(/filename\*=UTF-8''([^;]+)/i) || [])[1];
+  const plain = (disposition.match(/filename="?([^";]+)"?/i) || [])[1];
+  let filename = plain || `export_${id}.xlsx`;
+  if (star) { try { filename = decodeURIComponent(star); } catch {} }
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: "Excel workbook", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      toast("导出已保存。");
+      return;
+    } catch (error) {
+      if (error && error.name === "AbortError") { toast("导出已取消。"); return; }
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  toast("导出已下载。");
+}
+
+async function unexportItem(id) {
+  // 移回收采箱: 取消已导出标记
+  try {
+    await apiFetch(`/api/temu/imports/${id}/unexport`, { method: "POST" });
+    toast("已移回收采箱。");
+    state.selectedIds && state.selectedIds.delete(Number(id));
+    await refreshData({ silent: true });
+  } catch (error) {
+    toast(error.message || "操作失败。", "error");
+  }
+}
+
+async function markBulkExported(ids) {
+  // 文件保存确认后才归档。后端只标记 status=done 的, 返回实际归档数。
+  try {
+    const r = await apiFetch("/api/temu/imports/bulk/mark-exported", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+    const marked = (r && r.marked) || 0;
+    const total = (r && r.total) || ids.length;
+    const skipped = total - marked;
+    for (const id of ids) state.selectedIds && state.selectedIds.delete(Number(id));
+    await refreshData({ silent: true });
+    if (skipped > 0) {
+      toast(`已导出 ${marked} 个，${skipped} 个未完成已跳过。`, "warn");
+    } else {
+      toast(`已导出 ${marked} 个商品。`);
+    }
+  } catch {
+    toast("文件已下载，但归档失败，可稍后重试。", "warn");
+  }
 }
 
 async function deleteItem(id) {
@@ -714,7 +834,7 @@ async function deleteItem(id) {
 }
 
 function selectedIds() {
-  return Array.from(document.querySelectorAll(".row-check:checked")).map((cb) => Number(cb.value));
+  return Array.from(state.selectedIds || new Set());
 }
 
 function updateBatchState() {
@@ -732,7 +852,6 @@ function toggleBatchMenu(open) {
 async function batchExport() {
   const ids = selectedIds();
   if (!ids.length) { toast("请先勾选商品。", "warn"); return; }
-  if (!confirm(`确认导出选中的 ${ids.length} 个商品吗？`)) return;
   toggleBatchMenu(false);
   toast(`正在导出 ${ids.length} 个商品...`);
   try {
@@ -750,6 +869,30 @@ async function batchExport() {
     const disposition = response.headers.get("Content-Disposition") || "";
     const match = disposition.match(/filename="?([^";]+)"?/i);
     const filename = match ? match[1] : (ids.length === 1 ? `final_result_${ids[0]}.xlsx` : "exports.zip");
+    const doneIds = ids.slice();
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{
+            description: "Excel workbook",
+            accept: {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"]
+            }
+          }]
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        await markBulkExported(doneIds);
+        return;
+      } catch (error) {
+        if (error && error.name === "AbortError") {
+          toast("导出已取消。");
+          return;
+        }
+      }
+    }
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -758,7 +901,7 @@ async function batchExport() {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    toast(`已导出 ${ids.length} 个商品。`);
+    await markBulkExported(doneIds);
   } catch (error) {
     toast(error.message || "批量导出失败。", "error");
   }
@@ -777,6 +920,7 @@ async function batchDelete() {
     const msg = `已删除 ${data.deleted} 个` + (data.missing?.length ? `，未找到 ${data.missing.length} 个` : "");
     toast(msg);
     $("#selectAll").checked = false;
+    if (state.selectedIds) state.selectedIds.clear();
     await refreshData({ silent: true });
   } catch (error) {
     toast(error.message || "批量删除失败。", "error");
@@ -988,6 +1132,8 @@ function bindEvents() {
       if (action === "step4") await runStep(id, "step4");
       if (action === "generate") await runStep(id, "generate");
       if (action === "export") await exportItem(id);
+      if (action === "reexport") await reexportItem(id);
+      if (action === "unexport") await unexportItem(id);
       if (action === "delete") await deleteItem(id);
       if (action === "copy-plugin-url") { const _u = $("#pluginUrl"); const _ok = await copyTextSafe(_u ? (_u.dataset.real || "") : ""); toast(_ok ? "已复制。" : "复制失败，请手动复制。"); }
       if (action === "copy-ref") { const _ok = await copyTextSafe(actionButton.dataset.ref || ""); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }
@@ -1050,12 +1196,27 @@ function bindEvents() {
 
   $("#selectAll").addEventListener("change", (event) => {
     const checked = event.target.checked;
-    document.querySelectorAll(".row-check").forEach((cb) => (cb.checked = checked));
+    const sel = state.selectedIds || (state.selectedIds = new Set());
+    document.querySelectorAll(".row-check").forEach((cb) => {
+      const id = Number(cb.value);
+      cb.checked = checked;
+      if (checked) sel.add(id); else sel.delete(id);
+    });
     updateBatchState();
   });
 
   $("#productRows").addEventListener("change", (event) => {
-    if (event.target.classList.contains("row-check")) updateBatchState();
+    if (event.target.classList.contains("row-check")) {
+      const sel = state.selectedIds || (state.selectedIds = new Set());
+      const id = Number(event.target.value);
+      if (event.target.checked) sel.add(id); else sel.delete(id);
+      // 同步表头
+      const liveCbs = document.querySelectorAll(".row-check");
+      const allChecked = liveCbs.length > 0 && Array.from(liveCbs).every((cb) => state.selectedIds.has(Number(cb.value)));
+      const selAll = $("#selectAll");
+      if (selAll) selAll.checked = allChecked;
+      updateBatchState();
+    }
   });
 
   $("#batchBtn").addEventListener("click", (event) => {
@@ -1070,8 +1231,13 @@ function bindEvents() {
     if (action === "select-all") {
       const checks = document.querySelectorAll(".row-check");
       const all = Array.from(checks).every((cb) => cb.checked);
+      const sel = state.selectedIds || (state.selectedIds = new Set());
       $("#selectAll").checked = !all;
-      checks.forEach((cb) => (cb.checked = !all));
+      checks.forEach((cb) => {
+        const id = Number(cb.value);
+        cb.checked = !all;
+        if (!all) sel.add(id); else sel.delete(id);
+      });
       updateBatchState();
     } else if (action === "export") {
       batchExport();
