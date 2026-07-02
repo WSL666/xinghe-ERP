@@ -189,6 +189,10 @@ def init_db() -> None:
             conn.execute(
                 "ALTER TABLE enterprises ADD COLUMN plan_type TEXT NOT NULL DEFAULT 'free'"
             )
+        if not _column_exists(conn, "users", "is_deleted"):
+            conn.execute("ALTER TABLE users ADD COLUMN is_deleted BOOLEAN NOT NULL DEFAULT FALSE")
+        if not _column_exists(conn, "users", "deleted_at"):
+            conn.execute("ALTER TABLE users ADD COLUMN deleted_at TIMESTAMPTZ")
 
 
 # ────────────────────────────────────────────
@@ -577,21 +581,26 @@ def set_user_active(user_id: int, active: bool) -> bool:
 
 
 def delete_user(user_id: int) -> dict[str, Any] | None:
-    """彻底删除用户及其关联数据。
+    """软删除用户：标记 is_deleted + 禁用登录 + 释放手机号(允许重新注册)。
 
-    数据库外键已设计级联：
-    - imports / bean_transactions / enterprise_members / verification_codes → CASCADE（自动删）
-    - enterprises.creator_user_id / recharge_orders.operator_id → SET NULL（自动置空）
+    所有关联数据(任务/金豆/图片/视频)完整保留，超管可查看历史。
+    账号改为 'deleted_{id}_{原账号}' 释放原手机号，允许重新注册。
     """
     with db_conn() as conn:
         row = conn.execute(
-            """SELECT id, account, beans FROM users WHERE id = %s""",
+            """SELECT id, account, beans, is_deleted FROM users WHERE id = %s""",
             (user_id,),
         ).fetchone()
-        if not row:
+        if not row or row.get("is_deleted"):
             return None
         info = dict(row)
-        conn.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        orig_account = row["account"]
+        conn.execute(
+            """UPDATE users SET is_deleted = TRUE, is_active = FALSE,
+               account = %s, deleted_at = now(), updated_at = now() WHERE id = %s""",
+            (f"deleted_{user_id}_{orig_account}", user_id),
+        )
+    info["original_account"] = orig_account
     return info
 
 
