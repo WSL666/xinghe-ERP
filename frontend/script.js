@@ -242,3 +242,15 @@ document.querySelectorAll("[data-auth-form]").forEach((form) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeAuth();
 });
+
+
+// ── 密码可见性切换 ───────────────────────────────
+document.querySelectorAll("[data-pwd-toggle]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const input = btn.parentElement.querySelector("input");
+    if (!input) return;
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    btn.classList.toggle("showing", show);
+  });
+});

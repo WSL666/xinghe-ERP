@@ -61,11 +61,13 @@
        <label class="required-field">
           <input type="text" name="account" placeholder="手机号" inputmode="numeric" required>
        </label>
-       <label class="required-field">
+       <label class="required-field pwd-field">
          <input type="password" name="password" placeholder="密码" required>
+         <button class="pwd-toggle" type="button" data-pwd-toggle aria-label="显示/隐藏密码"></button>
        </label>
-       <label class="required-field">
+       <label class="required-field pwd-field">
          <input type="password" name="confirmPassword" placeholder="确认密码" required>
+         <button class="pwd-toggle" type="button" data-pwd-toggle aria-label="显示/隐藏密码"></button>
        </label>
        <label class="required-field verify-field">
          <input type="text" name="smsCode" placeholder="验证码" autocomplete="one-time-code" maxlength="6" required>
@@ -91,8 +93,9 @@
         <label>
           <input type="text" name="account" placeholder="手机号" inputmode="numeric" required>
         </label>
-        <label>
+        <label class="pwd-field">
           <input type="password" name="password" placeholder="密码" required>
+          <button class="pwd-toggle" type="button" data-pwd-toggle aria-label="显示/隐藏密码"></button>
         </label>
         <label class="captcha-field">
           <input type="text" name="captcha" placeholder="请输入验证码">
@@ -120,11 +123,13 @@
         <label class="required-field">
           <input type="text" name="account" placeholder="管理员账号（手机号）" required>
         </label>
-        <label class="required-field">
+        <label class="required-field pwd-field">
           <input type="password" name="password" placeholder="密码" required minlength="6">
+          <button class="pwd-toggle" type="button" data-pwd-toggle aria-label="显示/隐藏密码"></button>
         </label>
-        <label class="required-field">
+        <label class="required-field pwd-field">
           <input type="password" name="confirmPassword" placeholder="确认密码" required>
+          <button class="pwd-toggle" type="button" data-pwd-toggle aria-label="显示/隐藏密码"></button>
         </label>
         <button class="submit-button" type="submit">开通企业并登录</button>
       </form>
