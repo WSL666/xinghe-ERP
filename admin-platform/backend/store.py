@@ -324,7 +324,6 @@ def dashboard_overview() -> dict[str, Any]:
                 COUNT(*) FILTER (WHERE created_at >= current_date AND status = 'error') AS today_error,
                 COUNT(*) FILTER (WHERE created_at >= current_date AND status IN ('queued','running','translating','generating','pending')) AS today_running
             FROM imports
-            WHERE user_id IN (SELECT id FROM users WHERE is_deleted = FALSE)
             """
         ).fetchone()
         beans = conn.execute(
@@ -333,7 +332,6 @@ def dashboard_overview() -> dict[str, Any]:
                 COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0) AS recharge_total,
                 COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0) AS consume_total
             FROM bean_transactions
-            WHERE user_id IN (SELECT id FROM users WHERE is_deleted = FALSE)
             """
         ).fetchone()
     return {
