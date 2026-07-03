@@ -150,8 +150,8 @@
       var tb = document.getElementById("liveFeedBody");
       if (!tb) return;
       if (!items.length) { tb.innerHTML = '<tr><td colspan="9" class="empty-row">暂无任务</td></tr>'; return; }
-      var newIds = items.map(function (it) { return it.id; });
-      var hasNew = state.liveFeed.lastIds.length === 0 || newIds.some(function (id) { return state.liveFeed.lastIds.indexOf(id) < 0; });
+      var newSigs = items.map(function (it) { return it.id + ":" + it.status + ":" + (it.updated_at || ""); });
+      var hasNew = state.liveFeed.lastIds.length === 0 || newSigs.some(function (sig) { return state.liveFeed.lastIds.indexOf(sig) < 0; });
       if (hasNew) {
         tb.innerHTML = items.map(function (item) {
           return "<tr>"
@@ -169,7 +169,7 @@
             + '<td class="action-cell"><button class="mini-btn" data-action="task-detail" data-tid="' + item.id + '">详情</button></td>'
             + "</tr>";
         }).join("");
-        state.liveFeed.lastIds = newIds;
+        state.liveFeed.lastIds = newSigs;
       }
     } catch (e) { /* 静默 */ }
   }
