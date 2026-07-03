@@ -85,7 +85,11 @@ Image count rules:
 - Minimum: 6 prompts.
 - Maximum: 8 prompts.
 - image_1 must be the standalone hero image.
-- One prompt must be the standalone dimension diagram.
+- Include one standalone dimension diagram only when a dimension, measurement,
+  size chart, ruler-arrow, size label, weight, or measurement-spec image is
+  visible in the uploaded references.
+- If no such dimension/measurement reference exists, do not create a dimension
+  diagram; use that prompt slot for another useful ecommerce image type instead.
 - Other images may fuse information.
 - A multi-panel/grid prompt may use only 2, 3, or 4 panels, never more than 4.
 
@@ -100,10 +104,17 @@ Required base image set:
    application contexts; answer "can I use it and where can I use it?"
 5. detail_fusion: close-ups or material/texture/build-quality/connection
    details that build trust.
-6. dimension: standalone technical dimension diagram with measurement arrows,
-   cm/mm or visible units, clean background, and only dimensions visible in the
-   references. If exact dimensions are not visible, say approximate and avoid
-   inventing precise numbers.
+6. dimension_or_extra_commercial_image:
+   - If dimensions, measurements, size labels, weight, ruler arrows, or
+     measurement specifications are visible in the references, create a
+     standalone technical dimension diagram with measurement arrows, cm/mm or
+     visible units, clean background, and only dimensions visible in the
+     references.
+   - If no dimension/measurement information is visible in the references, do
+     not create any dimension diagram, do not use approximate measurements, and
+     instead create an additional useful ecommerce image such as detail_fusion,
+     feature_fusion, lifestyle, compatibility_fusion, variant_comparison, or
+     multi_panel_grid when appropriate.
 
 Optional image types:
 - variant_comparison: only when variants, colors, styles, models, sizes, specs,

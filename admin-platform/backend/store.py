@@ -310,7 +310,7 @@ def count_audit_logs() -> int:
 def dashboard_overview() -> dict[str, Any]:
     """全平台核心指标聚合，一次查询拿全。"""
     with db_conn() as conn:
-        users = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
+        users = conn.execute("SELECT COUNT(*) AS c FROM users WHERE is_deleted = FALSE").fetchone()["c"]
         enterprises = conn.execute("SELECT COUNT(*) AS c FROM enterprises").fetchone()["c"]
         today = conn.execute(
             """
@@ -324,6 +324,7 @@ def dashboard_overview() -> dict[str, Any]:
                 COUNT(*) FILTER (WHERE created_at >= current_date AND status = 'error') AS today_error,
                 COUNT(*) FILTER (WHERE created_at >= current_date AND status IN ('queued','running','translating','generating','pending')) AS today_running
             FROM imports
+            WHERE user_id IN (SELECT id FROM users WHERE is_deleted = FALSE)
             """
         ).fetchone()
         beans = conn.execute(
@@ -332,6 +333,7 @@ def dashboard_overview() -> dict[str, Any]:
                 COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0) AS recharge_total,
                 COALESCE(SUM(amount) FILTER (WHERE amount < 0), 0) AS consume_total
             FROM bean_transactions
+            WHERE user_id IN (SELECT id FROM users WHERE is_deleted = FALSE)
             """
         ).fetchone()
     return {
