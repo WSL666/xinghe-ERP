@@ -21,6 +21,9 @@
     rechargeTarget: null,
     profileUser: { uid: null, name: "", tab: "info", page: 1, page_size: 20, total: 0 },
     liveFeed: { paused: false, timer: null, lastIds: [] },
+    dashPollTimer: null,
+    taskPollTimer: null,
+    errPollTimer: null,
     billingTab: "transactions",
   };
 
@@ -85,15 +88,18 @@
     document.getElementById("pageEyebrow").textContent = meta.eyebrow;
     document.getElementById("backBtn").style.display = "none";
     stopQueuePoll();
+    stopTaskPoll();
+    stopErrPoll();
+    stopDashPoll();
     resetSubPanels(name);
-    if (name === "dashboard") loadDashboard();
+    if (name === "dashboard") { loadDashboard(); startDashPoll(); }
     if (name === "users") loadUsers();
     if (name === "enterprises") loadEnterprises();
-    if (name === "tasks") loadTasks();
+    if (name === "tasks") { loadTasks(); startTaskPoll(); }
     if (name === "billing") loadBilling();
     if (name === "pricing") loadPricing();
     if (name === "ai") loadAI();
-    if (name === "monitoring") loadMonitoring();
+    if (name === "monitoring") { loadMonitoring(); startErrPoll(); }
     if (name === "audit") loadAudit();
   }
 
@@ -183,6 +189,51 @@
     var btn = document.querySelector(".live-pause-btn");
     if (btn) btn.textContent = state.liveFeed.paused ? "继续" : "暂停";
     if (!state.liveFeed.paused) loadLiveFeed();
+  }
+
+  /* ── 通用轮询: 驾驶舱统计(10s) / 任务监控(10s) / 错误列表(10s) ── */
+  function startDashPoll() {
+    stopDashPoll();
+    state.dashPollTimer = setInterval(loadDashboardStats, 10000);
+  }
+  function stopDashPoll() {
+    if (state.dashPollTimer) { clearInterval(state.dashPollTimer); state.dashPollTimer = null; }
+  }
+  async function loadDashboardStats() {
+    try {
+      var d = await api("/api/admin/dashboard/overview");
+      if (!d) return;
+      document.getElementById("statUsers").textContent = d.users;
+      document.getElementById("statEnt").textContent = d.enterprises;
+      document.getElementById("statToday").textContent = d.today_imports;
+      document.getElementById("statTotal").textContent = d.total_imports;
+      document.getElementById("statDone").textContent = d.total_done;
+      document.getElementById("statRunning").textContent = d.in_progress;
+      document.getElementById("statFailed").textContent = d.total_error;
+      document.getElementById("statRecharge").textContent = d.recharge_beans;
+      document.getElementById("statConsume").textContent = d.consume_beans;
+      document.getElementById("statTodayDone").textContent = d.today_done || 0;
+      document.getElementById("statTodayRunning").textContent = d.today_running || 0;
+      document.getElementById("statTodayError").textContent = d.today_error || 0;
+    } catch (e) { /* 静默 */ }
+  }
+
+  function startTaskPoll() {
+    stopTaskPoll();
+    state.taskPollTimer = setInterval(loadTasks, 10000);
+  }
+  function stopTaskPoll() {
+    if (state.taskPollTimer) { clearInterval(state.taskPollTimer); state.taskPollTimer = null; }
+  }
+
+  function startErrPoll() {
+    stopErrPoll();
+    state.errPollTimer = setInterval(function () {
+      if (monitorTab === "errors") { loadErrorSummary(); loadErrorTasks(); }
+    }, 10000);
+  }
+  function stopErrPoll() {
+    if (state.errPollTimer) { clearInterval(state.errPollTimer); state.errPollTimer = null; }
   }
 
   function todayStr() {
@@ -1737,6 +1788,7 @@
       state.admin = d.admin;
       document.getElementById("adminName").textContent = d.admin.display_name || d.admin.username;
       loadDashboard();
+      startDashPoll();
     } catch (e) { window.location.href = "/"; }
   }
 
