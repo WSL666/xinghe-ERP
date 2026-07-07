@@ -13,6 +13,7 @@
 - **前端**：纯静态 HTML/CSS/JS，由 FastAPI 的 `StaticFiles` 直接托管
 - **进程管理**：systemd（`product-pipeline.service` web + `product-pipeline-worker.service` worker + `admin-platform.service` 超管，均 `Restart=always` 开机自启）
 - **采集端**：Chrome 扩展（`collector/temu-collector/`，Manifest V3，v2.0）
+  - 改插件代码后网页端下载自动拿到最新版（`_ensure_plugin_zip` 检测源码 mtime，详见 `collector/README.md`），无需手动打包/重启服务
 
 ## 三级权限体系
 

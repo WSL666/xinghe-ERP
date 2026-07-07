@@ -435,25 +435,36 @@ async def temu_health() -> dict[str, Any]:
 
 
 def _ensure_plugin_zip() -> Path:
-    """确保采集插件 zip 已打包好(进程级缓存)。
+    """确保采集插件 zip 是最新源码打包的(进程级缓存 + 源码变更检测)。
 
-    第一次调用时从 collector/temu-collector/ 源码目录打包成 zip 并缓存,
-    后续请求直接返回该缓存文件。点击下载时只做静态文件发送, 不再每次打包。
-    插件源码有更新时, 重启服务即重新打包, 无需手动 repack。
+    机制:
+      - 进程内存缓存 zip 路径, 命中则直接发文件(下载瞬间完成)。
+      - 命中时额外比对"源码目录最新 mtime"与"zip 文件 mtime":
+        源码有更新(改了 popup.js/html 等) → 自动重新打包, 无需重启服务。
+      - 重启后缓存丢失, 首次下载重新打包(用最新源码)。
+    即: 改了插件代码永远下载到最新版, 不用手动打包, 不用重启服务。
     """
     import io
     import zipfile as zf
     from config import APP_ROOT
 
-    cached = getattr(_ensure_plugin_zip, "_path", None)
-    if cached and cached.is_file():
-        return cached
-
     collector_dir = APP_ROOT / "collector" / "temu-collector"
     if not collector_dir.is_dir():
         raise _err("采集插件目录不存在", 404)
-
     zip_path = collector_dir.parent / "temu-collector.zip"
+
+    # 源码最新修改时间(用于检测是否需要重新打包)
+    src_mtime = max(
+        (f.stat().st_mtime for f in collector_dir.rglob("*") if f.is_file()),
+        default=0.0,
+    )
+    cached = getattr(_ensure_plugin_zip, "_path", None)
+    if cached == zip_path and zip_path.is_file():
+        # 缓存命中: 仅当源码比 zip 更新时才重新打包
+        if zip_path.stat().st_mtime >= src_mtime:
+            return cached
+
+    # (重新)打包
     buf = io.BytesIO()
     with zf.ZipFile(buf, "w", zf.ZIP_DEFLATED) as zipf:
         for file_path in collector_dir.rglob("*"):
