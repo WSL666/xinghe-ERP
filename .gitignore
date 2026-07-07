@@ -30,3 +30,4 @@ backend/sms_codes.txt
 
 # 采集插件 zip: 后端运行时自动打包缓存(_ensure_plugin_zip), 不进 git
 collector/temu-collector.zip
+
