@@ -105,25 +105,43 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
     # 产品属性(pid/vid/templatePid)统一在导出时用最新 attr_db 补全,
     # 入库只存采集端原始 propName/propValue/refPid, 避免存快照导致换库后老数据失效。
 
-    # 金豆余额检查: 允许欠到-10, 余额 <= -10 时拒绝(防止无限欠费)
-    from billing.store import get_beans
+    # 预扣(hold)计费: 入队前冻结这条链接的悲观上限(视觉1 + 输入图数*1)。
+    # 冻结即时降低可用余额, 天然防超扣(支持未来多并发)。
+    from billing.store import (
+        hold_amount_for, hold_beans, BEANS_FLOOR, get_available_beans,
+    )
+    total_images = len((product_data.get("galleryImages", []) or [])[:10])
+    hold_amount = hold_amount_for(total_images)
     try:
-        beans = get_beans(int(user["id"]))
+        avail = get_available_beans(int(user["id"]))
     except Exception:
-        # billing 查询失败不阻断主流程(放行, 宁可后扣费也不误伤)
-        beans = 0
-    if beans <= -10:
+        # 查询失败不阻断(放行, 宁可后扣费也不误伤)
+        avail = 1
+    if avail <= BEANS_FLOOR:
         raise _err("金豆不足，请充值后再试", 402)
 
     payload = {**payload, "platform": "temu"}
     import_id = insert_import(int(user["id"]), payload)
+    # 预扣冻结: 失败说明可用余额不够本条上限 → 标 insufficient, 不入队
+    held = hold_beans(int(user["id"]), hold_amount, import_id)
+    if not held:
+        update_status(int(user["id"]), import_id, "insufficient",
+                      f"金豆不足(需冻结{hold_amount}, 可用{avail})")
+        raise _err(f"金豆不足，本条需冻结{hold_amount}金豆，当前可用{avail}，请充值后再试", 402)
     run_auto_pipeline(int(user["id"]), import_id)
+    # 顺带返回可用余额(插件据此提示/置灰, 无需插件额外请求)
+    try:
+        from billing.store import get_available_beans as _gab
+        avail_after = _gab(int(user["id"]))
+    except Exception:
+        avail_after = None
     return _ok(
         import_id=import_id,
         title=product_data.get("title", ""),
         sku_count=len(skus),
         total_images=len((product_data.get("galleryImages", []) or [])[:10]),
         status="queued",
+        available=avail_after,
     )
 
 
@@ -132,9 +150,10 @@ async def temu_list_imports(platform: str | None = None, request: Request = None
                             user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
     exported = (request.query_params.get("exported") in {"1", "true", "yes"}) if request else False
     error_box = (request.query_params.get("error") in {"1", "true", "yes"}) if request else False
-    # 错误箱跨平台汇总, 不按 platform 过滤
-    pf = None if error_box else platform
-    return _ok(imports=list_imports(int(user["id"]), pf, exported, error_box))
+    insufficient_box = (request.query_params.get("insufficient") in {"1", "true", "yes"}) if request else False
+    # 错误箱/余额不足箱 跨平台汇总, 不按 platform 过滤
+    pf = None if (error_box or insufficient_box) else platform
+    return _ok(imports=list_imports(int(user["id"]), pf, exported, error_box, insufficient_box))
 
 
 @router.get("/imports/{import_id}")

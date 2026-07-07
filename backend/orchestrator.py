@@ -64,6 +64,10 @@ def worker_handler(user_id: int, import_id: int) -> None:
     if status == "error":
         log(f"skip: import={import_id} already error (duplicate queue item ignored)")
         return
+    if status == "insufficient":
+        # 余额不足被搁置的任务不应被执行(防御性跳过, 避免无预扣跑任务导致超扣)
+        log(f"skip: import={import_id} insufficient beans, not executed")
+        return
 
     platform = row.get("platform") or "temu"
     log(f">>> dispatch: platform={platform} import={import_id}")

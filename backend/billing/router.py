@@ -54,9 +54,30 @@ def _require_admin(request: Request) -> None:
 
 @router.get("/balance")
 async def get_balance(request: Request) -> dict[str, Any]:
-    """查当前用户金豆余额。"""
-    uid = await _uid(request)
-    return _ok(beans=get_beans(uid))
+    """查当前用户金豆余额(可用 = 真实 - 冻结)。
+
+    同时支持网站登录(session cookie)和插件 API Key(Bearer),
+    插件开弹窗时调此接口查余额决定是否置灰采集按钮。
+    """
+    # 优先用 session(网站), 否则用 API Key(插件)
+    uid = None
+    try:
+        user = await current_user(request)
+        uid = int(user["id"])
+    except Exception:
+        # 非网站登录态 → 尝试 Bearer API Key(插件)
+        auth = request.headers.get("authorization", "")
+        scheme, _, token = auth.partition(" ")
+        if scheme.lower() == "bearer" and token:
+            from store import get_user_by_api_key
+            u = get_user_by_api_key(token.strip())
+            if not u or not u.get("is_active"):
+                raise _err("not authenticated", 401)
+            uid = int(u["id"])
+    if uid is None:
+        raise _err("not authenticated", 401)
+    from .store import get_available_beans
+    return _ok(beans=get_beans(uid), available=get_available_beans(uid))
 
 
 @router.get("/transactions")
@@ -92,4 +113,10 @@ async def recharge(payload: dict[str, Any], request: Request) -> dict[str, Any]:
     result = add_beans(int(target["id"]), amount, reason)
     if not result:
         raise _err("充值失败")
-    return _ok(balance_after=result["balance_after"], uid=uid_str)
+    # 充值后自动恢复该用户"余额不足"被搁置的任务(重新预扣 + 入队)
+    try:
+        from .store import restore_insufficient
+        resumed = restore_insufficient(int(target["id"]))
+    except Exception:
+        resumed = []
+    return _ok(balance_after=result["balance_after"], uid=uid_str, resumed=resumed)

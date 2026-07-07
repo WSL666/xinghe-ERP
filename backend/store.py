@@ -473,25 +473,31 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
 
 
 def list_imports(user_id: int, platform: str | None = None, exported: bool = False,
-                error_box: bool = False) -> list[dict[str, Any]]:
+                error_box: bool = False, insufficient_box: bool = False) -> list[dict[str, Any]]:
     """列出某用户的导入记录。
 
-    三个互斥的箱子(由调用方组合参数决定):
-      - 采集箱(默认): exported=False, error_box=False → 未导出 且 非 error
-      - 已导出箱:     exported=True,  error_box=False → 已归档(可能含 error)
-      - 错误箱:       error_box=True → 所有 status=error 的(跨平台汇总)
-    platform 不为空时额外按平台过滤(错误箱通常不传, 拉全部平台)。
+    四个互斥的箱子(由调用方组合参数决定):
+      - 采集箱(默认):     exported=False, error_box=False → 未导出 且 非 error/insufficient
+      - 已导出箱:         exported=True,  error_box=False → 已归档(可能含 error)
+      - 错误箱:           error_box=True → 所有 status=error 的(跨平台汇总)
+      - 余额不足箱:       insufficient_box=True → 所有 status=insufficient 的
+    insufficient(余额不足待充值)不混入采集箱, 单独一个箱子展示,
+    让用户清楚"这些要充值后才会自动续跑"。
+    platform 不为空时额外按平台过滤(错误/余额不足箱通常不传, 拉全部平台)。
     """
     with db_conn() as conn:
         clauses = ["i.user_id = %s"]
         params: list = [user_id]
         if error_box:
             clauses.append("i.status = 'error'")
+        elif insufficient_box:
+            clauses.append("i.status = 'insufficient'")
         else:
             clauses.append("i.exported = %s")
             params.append(exported)
-            # 采集箱 + 已导出箱 都排除 error, error 只出现在错误汇总
+            # 采集箱 + 已导出箱 都排除 error 和 insufficient(各自单独成箱)
             clauses.append("i.status != 'error'")
+            clauses.append("i.status != 'insufficient'")
         if platform:
             clauses.append("i.platform = %s")
             params.append(platform)

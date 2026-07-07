@@ -354,6 +354,7 @@ def execute(
             results["step3"] = {"ok": True, "vision": vision}
             vision_for_db = {k: v for k, v in vision.items() if k != "_image_cache"}
             store.update_step3_vision(user_id, import_id, vision_for_db, done=True)
+            # 视觉解析不在此单独扣费: 与图片生成合并, 在任务收尾统一扣一条流水(幂等)。
             store.record_step(user_id, import_id, step_key, "success",
                               output_data={"selected_indexes": vision.get("selected_indexes", []),
                                            "prompt_count": len(vision.get("prompt_items", [])),
@@ -430,21 +431,33 @@ def execute(
         msg = "vision failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
     store.update_finished_at(user_id, import_id)
-    # 按实际成功张数按比例扣费(全成功扣 10, 部分成功少扣, 全失败不扣)。
-    # 一个任务的全额 = 10 金豆, 单张单价 = 10 / 本任务应出图总数。
-    if done:
-        try:
-            from billing.store import charge_beans
-            total_images = ok_count + fail_count
-            if total_images > 0:
-                amount = max(1, round(10 * ok_count / total_images))
-            else:
-                amount = 10
-            result = charge_beans(user_id, amount, "TEMU采集箱", import_id=import_id)
+    # ── 结算计费(hold→settle/release, 一条链接一条流水) ──
+    # hold 在入队时已冻结悲观上限; 这里按实际成功数结算, 多冻的退还。
+    # 实际成本 = 视觉成功1 + 成功图数; 全失败则 release 不扣。
+    try:
+        from billing.store import settle_beans, release_beans, hold_amount_for
+        # 输入图数: 用采集到的原图数(与入队时的 total_images 口径一致)
+        input_image_count = len(image_context.get("image_bytes_list") or [])
+        hold_amount = hold_amount_for(input_image_count)
+        vision_ok = bool(s3.get("ok"))
+        success_images = sum(1 for g in generated if g.get("generated_image"))
+        if vision_ok or success_images > 0:
+            # 有任一项成功 → 结算(按实际成本扣, 多冻的退还)
+            result = settle_beans(user_id, import_id, hold_amount,
+                                  vision_ok, success_images)
             if result:
-                log(f"金豆扣除成功: user={user_id} import={import_id} "
-                    f"成功{ok_count}/{total_images}张 扣{amount} 余额={result['balance_after']}")
+                log(f"结算: user={user_id} import={import_id} "
+                    f"视觉={'1' if vision_ok else '0'} 图{success_images} "
+                    f"扣{result.get('charged', 0)} 余额={result['balance_after']}"
+                    f"{' [dedup]' if result.get('dedup') else ''}")
             else:
-                log(f"[WARN] 金豆扣费失败(余额不足): user={user_id} import={import_id}")
-        except Exception as exc:
-            log(f"[WARN] 金豆扣费异常: user={user_id} import={import_id} {exc}")
+                log(f"[WARN] 结算失败(无hold记录?): user={user_id} import={import_id}")
+        else:
+            # 视觉失败且无成功图 → 释放冻结(不扣)
+            result = release_beans(user_id, import_id, hold_amount)
+            if result:
+                log(f"释放冻结(全失败不扣): user={user_id} import={import_id} "
+                    f"余额={result['balance_after']}"
+                    f"{' [dedup]' if result.get('dedup') else ''}")
+    except Exception as exc:
+        log(f"[WARN] 结算/释放异常: user={user_id} import={import_id} {exc}")
