@@ -25,7 +25,7 @@ import pipeline_queue
 from security import create_session_token, load_session_token
 from store import (
     close_pool, delete_import, get_import, get_or_create_dev_user,
-    get_raw_import, get_user_by_api_key, get_user_by_id, init_db, mark_imports_exported,
+    get_raw_import, get_user_by_api_key, get_user_by_id, get_user_by_uid, init_db, mark_imports_exported,
     open_pool, unmark_imports_exported,
     insert_import, list_imports, update_status, edit_ai_image,
 )
@@ -166,6 +166,9 @@ async def temu_get_import_by_ref(ref_code: str, request: Request,
     target_user = get_user_by_uid(uid_part)
     if not target_user:
         raise _err("用户ID不存在", 404)
+    # 归属校验: ref_code 指向的用户必须就是当前登录用户本人, 防止越权读取他人采集详情。
+    if int(target_user["id"]) != int(user["id"]):
+        raise _err("无权访问该记录", 403)
     with __import__("store").db_conn() as conn:
         row = conn.execute(
             """SELECT * FROM imports WHERE user_id = %s AND user_seq = %s""",
