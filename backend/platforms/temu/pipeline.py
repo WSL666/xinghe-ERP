@@ -279,7 +279,7 @@ def execute(
     # 如果没选任何模块(不应该入队), 直接标 done 不跑
     if not run_title and not run_images:
         try:
-            store.update_ai_status(user_id, import_id, "done", "无AI模块")
+            store.update_status(user_id, import_id, "done", "无AI模块")
         except Exception:
             pass
         return
@@ -301,7 +301,7 @@ def execute(
     has_images = bool(product.carousel_images)
     store.update_status(user_id, import_id, "generating", "downloading source images")
     try:
-        store.update_ai_status(user_id, import_id, "generating", "AI处理中")
+        store.update_status(user_id, import_id, "generating", "AI处理中")
     except Exception:
         pass
     if has_images:
@@ -312,7 +312,7 @@ def execute(
         except Exception as exc:
             store.update_status(user_id, import_id, "error", f"image download failed: {exc}")
             try:
-                store.update_ai_status(user_id, import_id, "error", f"图片下载失败: {exc}")
+                store.update_status(user_id, import_id, "error", f"图片下载失败: {exc}")
             except Exception:
                 pass
             store.update_finished_at(user_id, import_id)
@@ -418,7 +418,7 @@ def execute(
     if timed_out_step:
         store.update_status(user_id, import_id, "error", f"AI exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s deadline")
         try:
-            store.update_ai_status(user_id, import_id, "error", "AI处理超时")
+            store.update_status(user_id, import_id, "error", "AI处理超时")
         except Exception:
             pass
         store.update_finished_at(user_id, import_id)
@@ -478,7 +478,7 @@ def execute(
         msg = "vision failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
     try:
-        store.update_ai_status(user_id, import_id, "done" if done else "error", msg)
+        store.update_status(user_id, import_id, "done" if done else "error", msg)
     except Exception:
         pass
     store.update_finished_at(user_id, import_id)

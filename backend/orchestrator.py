@@ -58,12 +58,11 @@ def worker_handler(user_id: int, import_id: int) -> None:
         log(f"skip: import={import_id} not found (deleted), abort")
         return
 
-    # 新架构: status 只表示采集状态(collected), AI 状态由 ai_status 跟踪
-    ai_status = (row.get("ai_status") or "").strip()
-    if ai_status in ("done", "generating"):
-        log(f"skip: import={import_id} ai_status={ai_status} (duplicate queue item ignored)")
+    status = (row.get("status") or "").strip()
+    if status in ("done", "generating"):
+        log(f"skip: import={import_id} status={status} (duplicate queue item ignored)")
         return
-    if ai_status == "insufficient":
+    if status == "insufficient":
         log(f"skip: import={import_id} insufficient beans, not executed")
         return
 

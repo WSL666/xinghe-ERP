@@ -29,7 +29,7 @@ from store import (
     get_raw_import, get_user_by_api_key, get_user_by_id, get_user_by_uid, init_db, mark_imports_exported,
     open_pool, unmark_imports_exported,
     insert_import, list_imports, update_raw_import, update_status, edit_ai_image,
-    update_ai_status, set_ai_features, update_ai_settings, get_ai_settings,
+    set_ai_features, update_ai_settings, get_ai_settings,
 )
 
 from platforms.temu.adapter import from_db_row, parse_product
@@ -131,13 +131,9 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
         if held:
             set_ai_features(uid, import_id, features)
             run_auto_pipeline(uid, import_id)
-            try:
-                from store import update_ai_status as _uas
-                _uas(uid, import_id, "queued", "AI排队中")
-            except Exception:
-                pass
+            update_status(uid, import_id, "queued", "AI排队中")
         else:
-            update_ai_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
+            update_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
 
     try:
         avail_after = get_available_beans(uid)
@@ -387,7 +383,7 @@ async def temu_restore(import_id: int,
     if not get_import(uid, import_id):
         raise _err(f"import {import_id} not found", 404)
     update_status(uid, import_id, "collected", "restored from error box")
-    update_ai_status(uid, import_id, "", "")
+    update_status(uid, import_id, "collected", "restored")
     return _ok(import_id=import_id, status="collected")
 
 
@@ -458,11 +454,11 @@ async def temu_ai_run(import_id: int,
     avail = get_available_beans(uid)
     held = hold_beans(uid, hold_amount, import_id)
     if not held:
-        update_ai_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
+        update_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
         raise _err(f"金豆不足，需冻结{hold_amount}金豆，当前可用{avail}", 402)
 
     set_ai_features(uid, import_id, features)
-    update_ai_status(uid, import_id, "queued", "AI排队中")
+    update_status(uid, import_id, "queued", "AI排队中")
     run_auto_pipeline(uid, import_id)
     try:
         avail_after = get_available_beans(uid)

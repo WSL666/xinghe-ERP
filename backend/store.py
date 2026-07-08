@@ -496,15 +496,15 @@ def list_imports(user_id: int, platform: str | None = None, exported: bool = Fal
         clauses = ["i.user_id = %s"]
         params: list = [user_id]
         if error_box:
-            clauses.append("i.ai_status = 'error'")
+            clauses.append("i.status = 'error'")
         elif insufficient_box:
-            clauses.append("i.ai_status = 'insufficient'")
+            clauses.append("i.status = 'insufficient'")
         else:
             clauses.append("i.exported = %s")
             params.append(exported)
             # 采集箱 + 已导出箱 都排除 AI 失败和余额不足(各自单独成箱)
-            clauses.append("i.ai_status != 'error'")
-            clauses.append("i.ai_status != 'insufficient'")
+            clauses.append("i.status != 'error'")
+            clauses.append("i.status != 'insufficient'")
         if platform:
             clauses.append("i.platform = %s")
             params.append(platform)
@@ -711,18 +711,6 @@ def update_status(user_id: int, import_id: int, status: str, msg: str = "") -> N
         )
 
 
-def update_ai_status(user_id: int, import_id: int, status: str, msg: str = "") -> None:
-    """更新某条 import 的 AI 处理状态。"""
-    with db_conn() as conn:
-        conn.execute(
-            """
-            UPDATE imports SET ai_status = %s, ai_status_msg = %s, updated_at = now()
-            WHERE user_id = %s AND id = %s
-            """,
-            (status, msg, user_id, import_id),
-        )
-
-
 def set_ai_features(user_id: int, import_id: int, features: list[str]) -> None:
     """记录本条 import 实际跑了哪些 AI 模块。"""
     with db_conn() as conn:
@@ -895,18 +883,11 @@ def delete_import(user_id: int, import_id: int) -> bool:
 
 
 def cleanup_stale_imports() -> int:
-    """启动时清理脏数据: 把 ai_status 为空但 status 是旧值的标记为纯采集。
-
-    老数据(status=queued/generating 但 ai_status='')在旧架构下是运行中的,
-    新架构 ai_status 才是 AI 状态 → 这些应该归为纯采集(ai_status='')。
-    前端 statusInfo 对 ai_status='' 显示「已采集」, 数据上是对的。
-    这里只清理 status 字段, 统一改成 'collected'。
-    返回清理的行数。
-    """
+    """启动时清理: 卡在 generating 的(worker重启=没跑完)标记为 error。"""
     with db_conn() as conn:
         cur = conn.execute(
-            "UPDATE imports SET status = 'collected', updated_at = now() "
-            "WHERE ai_status = '' AND status IN ('queued', 'generating', 'done', 'error')"
+            "UPDATE imports SET status = 'error', status_msg = '处理中断，请重试', updated_at = now() "
+            "WHERE status = 'generating'"
         )
         return cur.rowcount
 
@@ -919,7 +900,7 @@ def list_resumable_imports() -> list[dict[str, Any]]:
     """
     with db_conn() as conn:
         rows = conn.execute(
-            "SELECT id, user_id FROM imports WHERE ai_status IN ('queued', 'generating') ORDER BY id"
+            "SELECT id, user_id FROM imports WHERE status IN ('queued', 'generating') ORDER BY id"
         ).fetchall()
     return [dict(row) for row in rows]
 

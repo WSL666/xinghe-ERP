@@ -264,14 +264,13 @@ function setApiStatus(status, text) {
 }
 
 function statusInfo(item) {
-  // 采集状态(新架构固定 collected); 主要状态来自 ai_status
-  const ai = (item.ai_status || "").trim();
-  if (ai === "done") return { cls: "ok", text: "已完成" };
-  if (ai === "generating") return { cls: "running", text: "AI处理中" };
-  if (ai === "queued") return { cls: "queued", text: "AI排队中" };
-  if (ai === "error") return { cls: "error", text: "AI失败" };
-  if (ai === "insufficient") return { cls: "error", text: "金豆不足" };
-  // 无 AI 状态 → 纯采集
+  const status = (item.status || "").trim();
+  if (status === "done") return { cls: "ok", text: "已完成" };
+  if (status === "generating") return { cls: "running", text: "生成中" };
+  if (status === "queued") return { cls: "queued", text: "排队中" };
+  if (status === "error") return { cls: "error", text: "错误" };
+  if (status === "insufficient") return { cls: "error", text: "金豆不足" };
+  if (status === "collected") return { cls: "collected", text: "已采集" };
   return { cls: "collected", text: "已采集" };
 }
 
@@ -452,12 +451,12 @@ function filteredImports() {
 
 function renderStats() {
   $("#statTotal").textContent = state.imports.length;
-  $("#statDone").textContent = state.imports.filter((item) => (item.ai_status || "") === "done").length;
+  $("#statDone").textContent = state.imports.filter((item) => (item.status || "") === "done").length;
   $("#statImages").textContent = state.imports.reduce((sum, item) => sum + generatedOk(item).length, 0);
-  const aiActive = (s) => s === "queued" || s === "generating";
-  $("#statRunning").textContent = state.imports.filter((item) => aiActive((item.ai_status || "").trim())).length;
+  const statusActive = (s) => s === "queued" || s === "generating";
+  $("#statRunning").textContent = state.imports.filter((item) => statusActive((item.status || "").trim())).length;
   $("#statFailed").textContent = state.imports.filter((item) => {
-    const s = (item.ai_status || "").trim();
+    const s = (item.status || "").trim();
     return s === "error" || s === "insufficient";
   }).length;
 }
@@ -574,7 +573,7 @@ function renderVideoStrip(item) {
 
 // AI 状态徽标
 function renderAIBadges(item) {
-  const aiStatus = (item.ai_status || "").trim();
+  const aiStatus = (item.status || "").trim();
   const features = item.ai_features || [];
   if (!features.length && !aiStatus) return "";
   const titleDone = item.step2_done ? "done" : (aiStatus && features.includes("title") ? aiStatus : "");
@@ -756,14 +755,14 @@ let _lastSignature = "";
 
 function _activeImportCount() {
   return state.imports.filter((item) => {
-    const s = (item.ai_status || "").trim();
+    const s = (item.status || "").trim();
     return s === "queued" || s === "generating";
   }).length;
 }
 
 function _importsSignature() {
   return state.imports
-    .map((i) => `${i.id}:${i.ai_status || ""}:${i.step2_done}:${i.step3_done}:${i.step4_done}:${i.updated_at || ""}`)
+    .map((i) => `${i.id}:${i.status || ""}:${i.step2_done}:${i.step3_done}:${i.step4_done}:${i.updated_at || ""}`)
     .join("|");
 }
 
@@ -1034,11 +1033,11 @@ async function batchAIProcess() {
   try {
     const data = await apiFetch("/api/temu/imports");
     pending = (data.imports || []).filter((item) => {
-      const ai = (item.ai_status || "").trim();
+      const s = (item.status || "").trim();
       const hasTitle = !!item.step2_done;
       const hasImages = !!item.step4_done || (item.generated_json && item.generated_json.length > 0);
-      // 只跑真正没结果的: 没AI标题且没AI图片且不在运行中
-      return !hasTitle && !hasImages && ai !== "queued" && ai !== "generating";
+      // 跳过已有结果(标题/图片)和正在运行中的
+      return !hasTitle && !hasImages && s !== "queued" && s !== "generating" && s !== "done";
     }).map((item) => item.id);
   } catch {
     toast("获取列表失败。", "error");
@@ -1209,14 +1208,14 @@ function openAIEdit(id) {
   if (!item) return;
   const drawer = $("#detailDrawer");
   const title = item.cn_title || item.title || "未命名商品";
-  const aiStatus = (item.ai_status || "").trim();
+  const aiStatus = (item.status || "").trim();
   const running = aiStatus === "queued" || aiStatus === "generating";
   const compactItem = {
     id: item.id,
     ref_code: item.ref_code,
     status: item.status,
     status_msg: item.status_msg,
-    ai_status: aiStatus,
+    status: aiStatus,
     title: item.title,
     cn_title: item.cn_title,
     en_title: item.en_title,

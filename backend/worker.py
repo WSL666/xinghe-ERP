@@ -128,8 +128,8 @@ def main() -> None:
         # 清理卡在 generating 的残留: worker 刚启动说明上次的 generating 没跑完
         with db_conn() as conn:
             cur = conn.execute(
-                "UPDATE imports SET ai_status = 'error', ai_status_msg = '处理中断，请重试', "
-                "updated_at = now() WHERE ai_status = 'generating'"
+                "UPDATE imports SET status = 'error', status_msg = '处理中断，请重试', "
+                "updated_at = now() WHERE status = 'generating'"
             )
             if cur.rowcount:
                 logger.info("crash recovery: reset %d stuck 'generating' → 'error'", cur.rowcount)
