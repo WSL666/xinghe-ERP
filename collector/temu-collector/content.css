@@ -77,40 +77,15 @@
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.15s, transform 0.1s;
+  transition: background 0.3s, opacity 0.15s, transform 0.1s;
 }
 .tk-collect-btn:hover { opacity: 0.88; }
 .tk-collect-btn:active { transform: scale(0.97); }
-.tk-collect-btn:disabled { opacity: 0.5; cursor: default; }
-.tk-collect-btn.loading { animation: tk-pulse 0.8s ease-in-out infinite; }
+.tk-collect-btn:disabled { cursor: default; }
+.tk-collect-btn.loading { background: linear-gradient(135deg, #f39c12, #e67e22); animation: tk-pulse 0.8s ease-in-out infinite; }
+.tk-collect-btn.success { background: linear-gradient(135deg, #27ae60, #2ecc71); }
+.tk-collect-btn.fail { background: linear-gradient(135deg, #e74c3c, #c0392b); }
 @keyframes tk-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* 结果提示框 */
-#tk-toast {
-  position: fixed;
-  right: 24px;
-  bottom: 200px;
-  max-width: 300px;
-  z-index: 2147483646;
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-family: system-ui, -apple-system, sans-serif;
-  font-size: 13px;
-  line-height: 1.6;
-  color: #333;
-  background: #fff;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
-  display: none;
-  word-break: break-all;
-}
-#tk-toast.show { display: block; animation: tk-fadein 0.2s ease; }
-#tk-toast.success { border-left: 4px solid #27ae60; }
-#tk-toast.error { border-left: 4px solid #e74c3c; }
-#tk-toast.warn { border-left: 4px solid #f39c12; }
-@keyframes tk-fadein {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  50% { opacity: 0.6; }
 }

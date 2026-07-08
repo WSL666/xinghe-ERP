@@ -1,5 +1,5 @@
-// content.js — 通快采集悬浮按钮 (注入到 Temu 页面)
-// 负责: 悬浮按钮 UI + 可拖动 + 点击采集 + 发送到管线 + 结果提示
+// content.js — 通快采集悬浮卡片 (注入到 Temu 页面)
+// 负责: 悬浮卡片 UI + 拖动 + 点击采集 + 发送到管线 + 按钮状态反馈
 
 // 请求全部通过 background service worker 转发(绕过 CORS)
 function bgFetch(path, opts) {
@@ -23,7 +23,7 @@ function injectCSS() {
 }
 
 // ========== 创建悬浮卡片 ==========
-let fab, dot, toast, collectBtn, beansEl;
+let fab, dot, collectBtn, beansEl, btnTimer;
 function createFab() {
   if (document.getElementById('tk-fab')) return;
 
@@ -45,10 +45,6 @@ function createFab() {
   collectBtn = fab.querySelector('.tk-collect-btn');
   beansEl = fab.querySelector('.tk-beans');
 
-  toast = document.createElement('div');
-  toast.id = 'tk-toast';
-  (document.body || document.documentElement).appendChild(toast);
-
   // 采集按钮点击
   collectBtn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -56,7 +52,7 @@ function createFab() {
     doCollectAndSend();
   });
 
-  // 拖动逻辑: 拖动顶部 header 区域(默认右下角, 可拖动)
+  // 拖动逻辑: 拖动顶部 header 区域
   const header = fab.querySelector('.tk-header');
   let isDragging = false;
   let hasMoved = false;
@@ -95,6 +91,22 @@ function createFab() {
   });
 
   updateFabStatus();
+}
+
+// ========== 设置按钮状态 ==========
+function setBtnState(text, extraClass) {
+  if (!collectBtn) return;
+  clearTimeout(btnTimer);
+  collectBtn.textContent = text;
+  collectBtn.className = 'tk-collect-btn' + (extraClass ? ' ' + extraClass : '');
+  if (extraClass === 'success' || extraClass === 'fail') {
+    // 3秒后恢复
+    btnTimer = setTimeout(() => {
+      collectBtn.textContent = '📦 一键采集';
+      collectBtn.className = 'tk-collect-btn';
+      collectBtn.disabled = false;
+    }, 3000);
+  }
 }
 
 // ========== 更新卡片状态 ==========
@@ -139,37 +151,24 @@ async function updateFabStatus() {
   }
 }
 
-// ========== 提示框 ==========
-function showToast(type, html, autoCloseMs) {
-  if (!toast) return;
-  toast.className = 'tk-toast show ' + type;
-  toast.innerHTML = html;
-  clearTimeout(toast._timer);
-  if (autoCloseMs) toast._timer = setTimeout(() => toast.classList.remove('show'), autoCloseMs);
-}
-
 // ========== 核心: 采集 + 发送 (一键到底) ==========
 async function doCollectAndSend() {
-  if (collectBtn) { collectBtn.classList.add('loading'); collectBtn.disabled = true; collectBtn.textContent = '⏳ 采集中...'; }
-  showToast('warn', '⏳ 正在采集并发送...');
+  // 按钮立即变「正在采集」
+  collectBtn.disabled = true;
+  setBtnState('⏳ 正在采集...', 'loading');
 
   // 1. 校验密钥
   const apiKey = await getApiKey();
   if (!apiKey) {
-    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
-    showToast('error', '❌ 请先点击扩展图标 → 填写 API 密钥', 4000);
+    setBtnState('❌ 未配置密钥', 'fail');
     return;
   }
 
-  // 2. 注入 inject.js 到页面 MAIN world, 读取 rawData
+  // 2. 注入 inject.js 读取 rawData
   let injectResult;
   try {
-    const [tab] = [0]; // placeholder, 不需要
-    // content script 无法直接 executeScript 到自己页面, 用动态注入 script 标签
     injectResult = await new Promise((resolve) => {
       const timeout = setTimeout(() => resolve({ ok: false, error: '采集超时，请刷新页面重试' }), 8000);
-
-      // 监听 inject.js 的 postMessage
       const handler = (event) => {
         if (event.source !== window) return;
         if (!event.data || event.data.source !== 'tk-collector') return;
@@ -178,31 +177,23 @@ async function doCollectAndSend() {
         resolve(event.data);
       };
       window.addEventListener('message', handler);
-
-      // 注入 inject.js (MAIN world, 能访问 window.rawData)
       const script = document.createElement('script');
       script.src = chrome.runtime.getURL('inject.js');
       script.onload = function () { this.remove(); };
       (document.head || document.documentElement).appendChild(script);
     });
   } catch (e) {
-    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
-    showToast('error', '❌ 采集失败: ' + e.message, 5000);
+    setBtnState('❌ 采集失败', 'fail');
     return;
   }
 
   if (!injectResult || !injectResult.ok) {
-    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
-    showToast('error', '❌ ' + (injectResult?.error || '采集失败'), 5000);
+    setBtnState('❌ ' + (injectResult?.error || '采集失败').slice(0, 10), 'fail');
     return;
   }
 
-  const collectedData = injectResult.data;
-
-  // 3. 构建 payload (与 popup 发送逻辑完全一致)
-  const payload = buildPayload(collectedData);
-
-  // 4. 发送到管线
+  // 3. 构建 payload 并发送
+  const payload = buildPayload(injectResult.data);
   try {
     const res = await bgFetch('/api/temu/import', {
       method: 'POST',
@@ -210,22 +201,17 @@ async function doCollectAndSend() {
       body: payload,
     });
     const data = res.data || {};
-
-    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
-
     if (res.ok && data.ok) {
-      const balTip = (typeof data.available === 'number') ? `<br><span style="color:#888;font-size:11px;">💰 剩余 ${data.available} 金豆</span>` : '';
-      showToast('success', `✅ <b>${(data.title || '').slice(0, 30)}</b><br>${data.sku_count} SKU · ${data.total_images} 图${balTip}`, 4000);
+      setBtnState('✅ 采集成功', 'success');
       updateFabStatus();
     } else if (res.status === 402) {
-      showToast('error', `🔴 <b>金豆不足</b><br>${data.error || '余额不足'}<br><span style="color:#e74c3c;">请充值后继续</span>`, 5000);
+      setBtnState('❌ 金豆不足', 'fail');
       updateFabStatus();
     } else {
-      showToast('error', '❌ 发送失败: ' + (data.error || '未知错误'), 5000);
+      setBtnState('❌ 发送失败', 'fail');
     }
   } catch (e) {
-    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
-    showToast('error', '❌ 网络错误: ' + e.message, 5000);
+    setBtnState('❌ 网络错误', 'fail');
   }
 }
 
