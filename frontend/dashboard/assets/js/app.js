@@ -596,18 +596,6 @@ function renderAIBadges(item) {
   return html;
 }
 
-// AI 手动按钮 (仅未跑或失败时显示)
-function renderAIActions(item) {
-  const aiStatus = (item.ai_status || "").trim();
-  // 正在跑的显示状态, 不显示按钮
-  if (aiStatus === "queued" || aiStatus === "generating") return "";
-  if (aiStatus === "insufficient") {
-    return `<button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="title,images">重试AI</button>`;
-  }
-  // 已完成或未跑 → 显示手动按钮
-  return `<button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="title">🏷️标题</button><button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="images">🖼️生图</button><button class="ai-action-btn primary" data-action="ai-run" data-id="${item.id}" data-features="title,images">全链路</button>`;
-}
-
 function renderProducts() {
   const rows = filteredImports();
   const prevChecked = state.selectedIds || new Set();
@@ -646,9 +634,7 @@ function renderProducts() {
         <td>
           <div class="row-actions">
             <button data-action="detail" data-id="${item.id}">详情</button>
-            <button disabled>编辑</button>
-            <button disabled>导入</button>
-            ${renderAIActions(item)}
+            <button data-action="ai-edit" data-id="${item.id}">AI编辑</button>
             ${isError || isInsufficient ? `<button data-action="retry" data-id="${item.id}">重试</button><button data-action="restore" data-id="${item.id}">移回采集箱</button>` : isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
             <button class="danger" data-action="delete" data-id="${item.id}">删除</button>
           </div>
@@ -1206,6 +1192,43 @@ function openDetail(id) {
   drawer.setAttribute("aria-hidden", "false");
 }
 
+function openAIEdit(id) {
+  // AI编辑抽屉: 展示商品 + 手动触发 AI标题/AI生图(无全链路)
+  const item = state.imports.find((entry) => String(entry.id) === String(id));
+  if (!item) return;
+  const drawer = $("#detailDrawer");
+  const title = item.cn_title || item.title || "未命名商品";
+  const aiStatus = (item.ai_status || "").trim();
+  const running = aiStatus === "queued" || aiStatus === "generating";
+  const aiBtnHtml = running
+    ? `<p class="hint">AI 正在处理中…</p>`
+    : `<div class="ai-edit-actions">
+         <button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="title">🏷️ AI标题</button>
+         <button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="images">🖼️ AI生图</button>
+       </div>`;
+  drawer.innerHTML = `
+    <button class="ghost-btn small" data-action="close-drawer">关闭</button>
+    <h3>${escapeHtml(title)}</h3>
+    <p class="hint">编号 ${escapeHtml(item.ref_code || item.id)} · AI状态 ${escapeHtml(aiStatus || "未运行")}</p>
+    <h4>AI 操作</h4>
+    ${aiBtnHtml}
+    <h4>AI 标题</h4>
+    <div class="ai-title-result">
+      <div class="title-line title-orig"><span>源</span>${escapeHtml(item.title || "无")}</div>
+      <div class="title-line title-ai"><span>新</span>${item.cn_title ? escapeHtml(item.cn_title) : '<span class="muted-cell">待生成</span>'}</div>
+      <div class="title-line title-en"><span>英</span>${item.en_title ? escapeHtml(item.en_title) : '<span class="muted-cell">待生成</span>'}</div>
+    </div>
+    <h4>图片</h4>
+    ${renderImageRows(item.gallery_images || [], generatedOk(item), item)}
+    <details class="debug-json">
+      <summary>步骤日志</summary>
+      ${renderStepLogs(item)}
+    </details>
+  `;
+  drawer.classList.add("open");
+  drawer.setAttribute("aria-hidden", "false");
+}
+
 function decodeText(value) {
   if (value === null || value === undefined) return "";
   let s = String(value);
@@ -1476,6 +1499,7 @@ function bindEvents() {
       if (action === "ai-delete") await aiImageAction("delete", actionButton.dataset.importId, { image_type: actionButton.dataset.imageType });
       if (action === "ai-restore") await aiImageAction("restore", actionButton.dataset.importId, { image_type: actionButton.dataset.imageType });
       if (action === "detail") openDetail(id);
+      if (action === "ai-edit") openAIEdit(id);
       if (action === "spec") openSpec(id);
       if (action === "close-drawer") closeDrawer();
       if (action === "ai-run") {
