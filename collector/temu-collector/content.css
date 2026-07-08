@@ -3,7 +3,7 @@
   position: fixed;
   right: 24px;
   bottom: 24px;
-  width: 140px;
+  width: 168px;
   background: #fff;
   border-radius: 16px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
@@ -20,14 +20,14 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 10px 6px;
+  padding: 12px 12px 8px;
   cursor: grab;
   background: linear-gradient(135deg, #fb7701, #ff5722);
 }
 .tk-header:active { cursor: grabbing; }
 .tk-header img {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   pointer-events: none;
 }

@@ -23,7 +23,7 @@ function injectCSS() {
 }
 
 // ========== 创建悬浮卡片 ==========
-let fab, dot, collectBtn, beansEl, btnTimer;
+let fab, dot, collectBtn, btnTimer;
 function createFab() {
   if (document.getElementById('tk-fab')) return;
 
@@ -36,14 +36,12 @@ function createFab() {
     </div>
     <div class="tk-body">
       <div class="tk-status-row"><span class="tk-dot gray"></span><span class="tk-status-text">检查中...</span></div>
-      <div class="tk-beans"></div>
     </div>
-    <button class="tk-collect-btn">📦 一键采集</button>
+    <button class="tk-collect-btn">一键采集</button>
   `;
   (document.body || document.documentElement).appendChild(fab);
   dot = fab.querySelector('.tk-dot');
   collectBtn = fab.querySelector('.tk-collect-btn');
-  beansEl = fab.querySelector('.tk-beans');
 
   // 采集按钮点击
   collectBtn.addEventListener('click', (e) => {
@@ -102,7 +100,7 @@ function setBtnState(text, extraClass) {
   if (extraClass === 'success' || extraClass === 'fail') {
     // 3秒后恢复
     btnTimer = setTimeout(() => {
-      collectBtn.textContent = '📦 一键采集';
+      collectBtn.textContent = '一键采集';
       collectBtn.className = 'tk-collect-btn';
       collectBtn.disabled = false;
     }, 3000);
@@ -117,30 +115,18 @@ async function updateFabStatus() {
   if (!apiKey) {
     dot.className = 'tk-dot red';
     if (statusText) statusText.textContent = '未配置密钥';
-    if (beansEl) beansEl.textContent = '点扩展图标填密钥';
     return;
   }
   dot.className = 'tk-dot gray';
-  if (statusText) statusText.textContent = '查询中...';
+  if (statusText) statusText.textContent = '连接中...';
   try {
     const res = await bgFetch('/api/billing/balance', {
       method: 'GET',
       headers: { 'Authorization': 'Bearer ' + apiKey },
     });
     if (res.ok) {
-      const avail = res.data.available;
-      const est = avail > 0 ? Math.floor((avail + 10) / 11) : 0;
-      if (avail <= 0) {
-        dot.className = 'tk-dot red';
-        if (statusText) statusText.textContent = '金豆不足';
-      } else if (avail <= 11) {
-        dot.className = 'tk-dot yellow';
-        if (statusText) statusText.textContent = '余额偏低';
-      } else {
-        dot.className = 'tk-dot green';
-        if (statusText) statusText.textContent = '已连接';
-      }
-      if (beansEl) beansEl.textContent = '💰 可用 ' + avail + ' 豆（约' + est + '条）';
+      dot.className = 'tk-dot green';
+      if (statusText) statusText.textContent = '已连接';
     } else if (res.status === 401) {
       dot.className = 'tk-dot red';
       if (statusText) statusText.textContent = '密钥无效';
@@ -155,12 +141,12 @@ async function updateFabStatus() {
 async function doCollectAndSend() {
   // 按钮立即变「正在采集」
   collectBtn.disabled = true;
-  setBtnState('⏳ 正在采集...', 'loading');
+  setBtnState('正在采集...', 'loading');
 
   // 1. 校验密钥
   const apiKey = await getApiKey();
   if (!apiKey) {
-    setBtnState('❌ 未配置密钥', 'fail');
+    setBtnState('未配置密钥', 'fail');
     return;
   }
 
@@ -181,12 +167,12 @@ async function doCollectAndSend() {
       window.postMessage({ type: 'tk-collect' }, '*');
     });
   } catch (e) {
-    setBtnState('❌ 采集失败', 'fail');
+    setBtnState('采集失败', 'fail');
     return;
   }
 
   if (!injectResult || !injectResult.ok) {
-    setBtnState('❌ ' + (injectResult?.error || '采集失败').slice(0, 10), 'fail');
+    setBtnState((injectResult?.error || '采集失败').slice(0, 10), 'fail');
     return;
   }
 
@@ -200,16 +186,16 @@ async function doCollectAndSend() {
     });
     const data = res.data || {};
     if (res.ok && data.ok) {
-      setBtnState('✅ 采集成功', 'success');
+      setBtnState('采集成功', 'success');
       updateFabStatus();
     } else if (res.status === 402) {
-      setBtnState('❌ 金豆不足', 'fail');
+      setBtnState('金豆不足', 'fail');
       updateFabStatus();
     } else {
-      setBtnState('❌ 发送失败', 'fail');
+      setBtnState('发送失败', 'fail');
     }
   } catch (e) {
-    setBtnState('❌ 网络错误', 'fail');
+    setBtnState('网络错误', 'fail');
   }
 }
 
