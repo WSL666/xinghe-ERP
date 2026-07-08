@@ -143,7 +143,16 @@
                <span class="ai-toggle-label">AI自动处理</span>
                <label class="ai-switch-wrap">🏷️ AI标题<input type="checkbox" id="aiTitleToggle" class="switch-input"><span class="switch-track"></span></label>
                <label class="ai-switch-wrap">🖼️ AI生图<input type="checkbox" id="aiImagesToggle" class="switch-input"><span class="switch-track"></span></label>
-               <button class="ai-batch-btn" id="aiBatchBtn" type="button">⚡ 批量AI处理</button>
+               <label class="ai-conc-wrap">并发
+                 <select id="aiConcurrency" class="ai-conc-select">
+                   <option value="1">1</option>
+                   <option value="2">2</option>
+                   <option value="3" selected>3</option>
+                   <option value="4">4</option>
+                   <option value="5">5</option>
+                 </select>
+               </label>
+               <button class="ai-batch-btn" id="aiBatchBtn" type="button">批量AI处理</button>
              </div>
              <div class="batch-wrap" id="batchWrap">
                <button class="ghost-btn" id="batchBtn" type="button">批量处理 ▾</button>

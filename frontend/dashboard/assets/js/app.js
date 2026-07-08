@@ -1039,7 +1039,8 @@ async function batchRetry() {
 }
 
 async function batchAIProcess() {
-  // 全自动批量AI处理: 扫描所有"已采集未跑AI"的链接, 按并发数分批跑完
+  // 全自动批量AI处理: 从下拉框读并发数, 扫描所有"已采集未跑AI"的链接, 分批跑完
+  const concurrency = parseInt($("#aiConcurrency")?.value || "3", 10);
   const titleOn = $("#aiTitleToggle")?.checked;
   const imagesOn = $("#aiImagesToggle")?.checked;
   const features = [];
@@ -1047,11 +1048,6 @@ async function batchAIProcess() {
   if (imagesOn) features.push("images");
   if (!features.length) {
     toast("请先开启至少一个 AI 开关（标题/生图）。", "error");
-    return;
-  }
-  const concurrency = parseInt(prompt("并发数 (1-5):", "3"), 10);
-  if (!concurrency || concurrency < 1 || concurrency > 5) {
-    toast("并发数需在 1-5 之间。", "error");
     return;
   }
   toast("正在扫描已采集商品...");

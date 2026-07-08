@@ -2009,6 +2009,24 @@ tbody tr:nth-child(even) td {
   color: #3b4741;
   margin: 0;
 }
+.ai-conc-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b4741;
+}
+.ai-conc-select {
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+  outline: none;
+}
 .ai-batch-btn {
   padding: 6px 14px;
   font-size: 13px;
