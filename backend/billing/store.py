@@ -52,10 +52,10 @@ def reset_billing_for_import(user_id: int, import_id: int) -> None:
     """重新触发 AI 前, 清除该 import 的旧计费记录, 让新一轮 hold→settle 能正常走。
 
     操作(原子, FOR UPDATE 锁行):
-      1. 查该 import 之前实际扣了多少(amount < 0 的结算流水之和)
-      2. 把扣的金豆退还到 beans
-      3. 清理残留的 frozen_beans(如果有未释放的 hold)
-      4. 删除该 import 的所有 bean_transactions 记录
+      1. 查该 import 的旧 hold 额度 → 从 frozen 里减掉(把冻结还回去)
+      2. 查实际扣费(amount < 0)总额 → 退回到 beans
+      3. 删除该 import 的所有 bean_transactions 记录
+    注意: 不动其他 import 的 frozen, 保持全局 frozen 余额一致。
     """
     with db_conn() as conn:
         cur = conn.execute(
@@ -65,13 +65,12 @@ def reset_billing_for_import(user_id: int, import_id: int) -> None:
             return
         beans = int(cur["beans"])
         frozen = int(cur.get("frozen_beans") or 0)
-        # 查该 import 有多少 frozen 被 hold 但没释放
+        # 查该 import 的旧 hold 额度(从 ai_features 算)
         held_rows = conn.execute(
             "SELECT 1 FROM bean_transactions WHERE import_id = %s AND reason = 'hold' LIMIT 1",
             (import_id,),
         ).fetchone()
         if held_rows:
-            # hold 的额度 = hold_amount_for(features), 从 frozen 里退掉
             old_raw = conn.execute(
                 "SELECT ai_features FROM imports WHERE id = %s", (import_id,)
             ).fetchone()
@@ -82,8 +81,9 @@ def reset_billing_for_import(user_id: int, import_id: int) -> None:
                 if isinstance(feats, str):
                     feats = _json.loads(feats or "[]")
                 old_amount = hold_amount_for(feats or [])
+            # 退还 frozen(把这次 import 的冻结额度还回可用余额)
             frozen = max(0, frozen - old_amount)
-        # 查实际扣费(amount < 0)总额, 退还
+        # 退回已扣的 beans
         settled = conn.execute(
             "SELECT COALESCE(SUM(amount), 0) AS total FROM bean_transactions "
             "WHERE import_id = %s AND amount < 0",
@@ -91,12 +91,11 @@ def reset_billing_for_import(user_id: int, import_id: int) -> None:
         ).fetchone()
         if settled:
             beans -= int(settled["total"])  # total 是负数, 减去 = 加回
-        # 写回 beans + frozen
+        # 写回
         conn.execute(
             "UPDATE users SET beans = %s, frozen_beans = %s, updated_at = now() WHERE id = %s",
             (beans, frozen, user_id),
         )
-        # 删除该 import 的所有流水
         conn.execute(
             "DELETE FROM bean_transactions WHERE import_id = %s",
             (import_id,),

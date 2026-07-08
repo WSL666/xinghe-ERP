@@ -271,8 +271,9 @@ def execute(
     if not raw_import:
         return
 
-    # AI 模块化: 只跑用户选中的模块 (title / images)
-    ai_features = raw_import.get("ai_features") or []
+    # AI 模块化: ai_features 是独立 DB 列, 不在 raw_json 里 → 用 get_import 读全行
+    _full = store.get_import(user_id, import_id)
+    ai_features = (_full.get("ai_features") if _full else None) or raw_import.get("ai_features") or []
     run_title = "title" in ai_features
     run_images = "images" in ai_features
     # 如果没选任何模块(不应该入队), 直接标 done 不跑
@@ -295,23 +296,27 @@ def execute(
 
     # ── 统一下载一次: 采集到的 Temu 原图(后续 OSS 上传/视觉解析共用) ──
     # 旧版 step1 和 step3 各下载一次,白费一次网络往返。现在只下一次。
+    # 但如果只跑 title(翻译)且没有图片, 跳过下载直接跑翻译。
+    image_context: dict[str, Any] = {}
+    has_images = bool(product.carousel_images)
     store.update_status(user_id, import_id, "generating", "downloading source images")
     try:
         store.update_ai_status(user_id, import_id, "generating", "AI处理中")
     except Exception:
         pass
-    try:
-        if _timed_out():
-            raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s before download")
-        image_context = collect_product_images([to_pipeline_input(product)])
-    except Exception as exc:
-        store.update_status(user_id, import_id, "error", f"image download failed: {exc}")
+    if has_images:
         try:
-            store.update_ai_status(user_id, import_id, "error", f"图片下载失败: {exc}")
-        except Exception:
-            pass
-        store.update_finished_at(user_id, import_id)
-        return
+            if _timed_out():
+                raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s before download")
+            image_context = collect_product_images([to_pipeline_input(product)])
+        except Exception as exc:
+            store.update_status(user_id, import_id, "error", f"image download failed: {exc}")
+            try:
+                store.update_ai_status(user_id, import_id, "error", f"图片下载失败: {exc}")
+            except Exception:
+                pass
+            store.update_finished_at(user_id, import_id)
+            return
 
     # ── 三路并行: step1(源图上传OSS) ‖ step2(翻译) ‖ step3(视觉) ──
     # 关键优化: 翻译和视觉不再被 step1(上传OSS ~100秒)挡着,三路同时启动。
@@ -323,7 +328,7 @@ def execute(
     def _w1():
         """step1: 把已下载的图片字节传 OSS(存档用)。失败不阻断主流程。"""
         try:
-            if not product.old_image_urls:
+            if not product.old_image_urls and image_context.get("image_bytes_list"):
                 old_urls = upload_source_image_bytes_to_oss(env, image_context["image_bytes_list"])
                 product.old_image_urls = old_urls
                 raw_import.setdefault("product", {})["oldImageUrls"] = old_urls
@@ -364,6 +369,11 @@ def execute(
         import datetime as _dt
         step_key, label = "step3_vision", "视觉解析"
         started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if not image_context or not image_context.get("valid_b64"):
+            results["step3"] = {"ok": False, "error": "no images for vision"}
+            store.update_step3_vision(user_id, import_id, {"error": "no images"}, done=False)
+            store.record_step(user_id, import_id, step_key, "failed", error="no images", started_at=started, label=label)
+            return
         try:
             store.record_step(user_id, import_id, step_key, "running",
                               input_data={"carousel_count": len(product.carousel_images)},
