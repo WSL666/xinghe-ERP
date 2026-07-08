@@ -22,28 +22,48 @@ function injectCSS() {
   (document.head || document.documentElement).appendChild(link);
 }
 
-// ========== 创建悬浮按钮 ==========
-let fab, dot, toast;
+// ========== 创建悬浮卡片 ==========
+let fab, dot, toast, collectBtn, beansEl;
 function createFab() {
   if (document.getElementById('tk-fab')) return;
 
   fab = document.createElement('div');
   fab.id = 'tk-fab';
-  fab.innerHTML = `<img src="${chrome.runtime.getURL('tongkuai_image.png')}"><span class="tk-dot gray"></span>`;
+  fab.innerHTML = `
+    <div class="tk-header">
+      <img src="${chrome.runtime.getURL('tongkuai_image.png')}">
+      <span class="tk-name">通快采集</span>
+    </div>
+    <div class="tk-body">
+      <div class="tk-status-row"><span class="tk-dot gray"></span><span class="tk-status-text">检查中...</span></div>
+      <div class="tk-beans"></div>
+    </div>
+    <button class="tk-collect-btn">📦 一键采集</button>
+  `;
   (document.body || document.documentElement).appendChild(fab);
   dot = fab.querySelector('.tk-dot');
+  collectBtn = fab.querySelector('.tk-collect-btn');
+  beansEl = fab.querySelector('.tk-beans');
 
   toast = document.createElement('div');
   toast.id = 'tk-toast';
   (document.body || document.documentElement).appendChild(toast);
 
-  // 拖动逻辑 (默认右下角, 可拖动, 区分点击/拖动)
+  // 采集按钮点击
+  collectBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (collectBtn.disabled) return;
+    doCollectAndSend();
+  });
+
+  // 拖动逻辑: 拖动顶部 header 区域(默认右下角, 可拖动)
+  const header = fab.querySelector('.tk-header');
   let isDragging = false;
   let hasMoved = false;
   let startX = 0, startY = 0;
   let offsetX = 0, offsetY = 0;
 
-  fab.addEventListener('mousedown', (e) => {
+  header.addEventListener('mousedown', (e) => {
     isDragging = true;
     hasMoved = false;
     startX = e.clientX;
@@ -60,11 +80,12 @@ function createFab() {
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasMoved = true;
-    // 固定定位 → 切换为精确坐标
     fab.style.right = 'auto';
     fab.style.bottom = 'auto';
-    fab.style.left = Math.max(0, Math.min(window.innerWidth - 52, e.clientX - offsetX)) + 'px';
-    fab.style.top = Math.max(0, Math.min(window.innerHeight - 52, e.clientY - offsetY)) + 'px';
+    const fw = fab.offsetWidth;
+    const fh = fab.offsetHeight;
+    fab.style.left = Math.max(0, Math.min(window.innerWidth - fw, e.clientX - offsetX)) + 'px';
+    fab.style.top = Math.max(0, Math.min(window.innerHeight - fh, e.clientY - offsetY)) + 'px';
   });
 
   document.addEventListener('mouseup', () => {
@@ -73,24 +94,22 @@ function createFab() {
     fab.classList.remove('dragging');
   });
 
-  fab.addEventListener('click', (e) => {
-    if (hasMoved) return; // 拖动时不触发采集
-    doCollectAndSend();
-  });
-
   updateFabStatus();
 }
 
-// ========== 更新按钮状态点 ==========
+// ========== 更新卡片状态 ==========
 async function updateFabStatus() {
   const apiKey = await getApiKey();
+  const statusText = fab ? fab.querySelector('.tk-status-text') : null;
   if (!dot) return;
   if (!apiKey) {
     dot.className = 'tk-dot red';
+    if (statusText) statusText.textContent = '未配置密钥';
+    if (beansEl) beansEl.textContent = '点扩展图标填密钥';
     return;
   }
   dot.className = 'tk-dot gray';
-  // 查余额 (1次轻量请求)
+  if (statusText) statusText.textContent = '查询中...';
   try {
     const res = await bgFetch('/api/billing/balance', {
       method: 'GET',
@@ -98,13 +117,26 @@ async function updateFabStatus() {
     });
     if (res.ok) {
       const avail = res.data.available;
-      if (avail <= 0) dot.className = 'tk-dot red';
-      else if (avail <= 11) dot.className = 'tk-dot yellow';
-      else dot.className = 'tk-dot green';
+      const est = avail > 0 ? Math.floor((avail + 10) / 11) : 0;
+      if (avail <= 0) {
+        dot.className = 'tk-dot red';
+        if (statusText) statusText.textContent = '金豆不足';
+      } else if (avail <= 11) {
+        dot.className = 'tk-dot yellow';
+        if (statusText) statusText.textContent = '余额偏低';
+      } else {
+        dot.className = 'tk-dot green';
+        if (statusText) statusText.textContent = '已连接';
+      }
+      if (beansEl) beansEl.textContent = '💰 可用 ' + avail + ' 豆（约' + est + '条）';
     } else if (res.status === 401) {
       dot.className = 'tk-dot red';
+      if (statusText) statusText.textContent = '密钥无效';
     }
-  } catch { dot.className = 'tk-dot gray'; }
+  } catch {
+    dot.className = 'tk-dot gray';
+    if (statusText) statusText.textContent = '查询失败';
+  }
 }
 
 // ========== 提示框 ==========
@@ -118,13 +150,13 @@ function showToast(type, html, autoCloseMs) {
 
 // ========== 核心: 采集 + 发送 (一键到底) ==========
 async function doCollectAndSend() {
-  if (fab) fab.classList.add('loading');
+  if (collectBtn) { collectBtn.classList.add('loading'); collectBtn.disabled = true; collectBtn.textContent = '⏳ 采集中...'; }
   showToast('warn', '⏳ 正在采集并发送...');
 
   // 1. 校验密钥
   const apiKey = await getApiKey();
   if (!apiKey) {
-    if (fab) fab.classList.remove('loading');
+    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
     showToast('error', '❌ 请先点击扩展图标 → 填写 API 密钥', 4000);
     return;
   }
@@ -154,13 +186,13 @@ async function doCollectAndSend() {
       (document.head || document.documentElement).appendChild(script);
     });
   } catch (e) {
-    if (fab) fab.classList.remove('loading');
+    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
     showToast('error', '❌ 采集失败: ' + e.message, 5000);
     return;
   }
 
   if (!injectResult || !injectResult.ok) {
-    if (fab) fab.classList.remove('loading');
+    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
     showToast('error', '❌ ' + (injectResult?.error || '采集失败'), 5000);
     return;
   }
@@ -179,7 +211,7 @@ async function doCollectAndSend() {
     });
     const data = res.data || {};
 
-    if (fab) fab.classList.remove('loading');
+    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
 
     if (res.ok && data.ok) {
       const balTip = (typeof data.available === 'number') ? `<br><span style="color:#888;font-size:11px;">💰 剩余 ${data.available} 金豆</span>` : '';
@@ -192,7 +224,7 @@ async function doCollectAndSend() {
       showToast('error', '❌ 发送失败: ' + (data.error || '未知错误'), 5000);
     }
   } catch (e) {
-    if (fab) fab.classList.remove('loading');
+    if (collectBtn) { collectBtn.classList.remove('loading'); collectBtn.disabled = false; collectBtn.textContent = '📦 一键采集'; }
     showToast('error', '❌ 网络错误: ' + e.message, 5000);
   }
 }
