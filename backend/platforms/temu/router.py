@@ -518,7 +518,7 @@ async def temu_plugin_download(user: dict[str, Any] = Depends(_current_user)) ->
     from urllib.parse import quote
     safe = filename.encode("ascii", "ignore").decode("ascii") or "plugin.zip"
     headers = {
-        "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8''{quote(filename)}',
+        "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8\'\'{quote(filename)}',
     }
     return FileResponse(
         path=str(zip_path),
