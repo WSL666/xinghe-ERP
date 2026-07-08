@@ -1039,28 +1039,50 @@ async function batchRetry() {
 }
 
 async function batchAIProcess() {
-  // 批量AI处理: 对选中的已采集商品, 按并发数分批触发AI
-  const ids = selectedIds();
-  if (!ids.length) { toast("请先勾选商品。", "warn"); return; }
+  // 全自动批量AI处理: 扫描所有"已采集未跑AI"的链接, 按并发数分批跑完
   toggleBatchMenu(false);
 
-  // 让用户选并发数(1-5) + 功能(标题/生图)
-  const concurrency = parseInt(prompt("并发数 (1-5):", "1"), 10);
+  // 1. 读当前 AI 开关状态决定功能
+  const titleOn = $("#aiTitleToggle")?.checked;
+  const imagesOn = $("#aiImagesToggle")?.checked;
+  const features = [];
+  if (titleOn) features.push("title");
+  if (imagesOn) features.push("images");
+  if (!features.length) {
+    toast("请先开启至少一个 AI 开关（标题/生图）。", "error");
+    return;
+  }
+
+  // 2. 选并发数
+  const concurrency = parseInt(prompt("并发数 (1-5):", "3"), 10);
   if (!concurrency || concurrency < 1 || concurrency > 5) {
     toast("并发数需在 1-5 之间。", "error");
     return;
   }
-  const featChoice = prompt("AI功能 (输入: title=标题, images=生图, all=全链路):", "title");
-  const features = featChoice === "all" ? ["title", "images"]
-    : featChoice === "images" ? ["images"]
-    : ["title"];
 
-  toast(`正在批量处理 ${ids.length} 条, 并发 ${concurrency}...`);
+  // 3. 拉取所有已采集未跑AI的链接
+  toast("正在扫描已采集商品...");
+  let pending = [];
+  try {
+    const data = await apiFetch("/api/temu/imports");
+    pending = (data.imports || []).filter((item) => {
+      const ai = (item.ai_status || "").trim();
+      return !ai || ai === "idle"; // 没跑过AI的
+    }).map((item) => item.id);
+  } catch {
+    toast("获取列表失败。", "error");
+    return;
+  }
+  if (!pending.length) {
+    toast("没有待处理的商品。");
+    return;
+  }
 
-  // 分批: 按并发数分组, 每组同时发, 组间等
+  // 4. 分批全自动跑: 每组 concurrency 条, 跑完自动跑下一组
+  toast(`开始批量AI处理: 共 ${pending.length} 条, 并发 ${concurrency}...`);
   let ok = 0, fail = 0;
-  for (let i = 0; i < ids.length; i += concurrency) {
-    const batch = ids.slice(i, i + concurrency);
+  for (let i = 0; i < pending.length; i += concurrency) {
+    const batch = pending.slice(i, i + concurrency);
     const results = await Promise.allSettled(
       batch.map((id) =>
         apiFetch(`/api/temu/imports/${id}/ai-run`, {
@@ -1070,15 +1092,12 @@ async function batchAIProcess() {
       )
     );
     for (let j = 0; j < results.length; j++) {
-      if (results[j].status === "fulfilled") {
-        ok++;
-        state.selectedIds && state.selectedIds.delete(Number(batch[j]));
-      } else {
-        fail++;
-      }
+      if (results[j].status === "fulfilled") ok++;
+      else fail++;
     }
+    // 每批跑完刷新一次数据
+    await refreshData({ silent: true });
   }
-  await refreshData({ silent: true });
   toast(`批量AI处理完成: 成功 ${ok}, 失败 ${fail}。`);
 }
 
