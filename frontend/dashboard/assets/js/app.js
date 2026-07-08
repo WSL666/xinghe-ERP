@@ -1199,11 +1199,29 @@ function openAIEdit(id) {
     step_logs: item.step_logs,
     generated_json: item.generated_json
   };
+  const titleDone = !!item.step2_done;
+  const imagesDone = !!item.step4_done;
   const aiOpsHtml = running
     ? `<p class="hint">⏳ AI 正在处理中…</p>`
-    : `<div class="ai-edit-toggles">
-         <label class="ai-switch-wrap">🏷️ AI标题 (1金豆)<input type="checkbox" id="drawerTitleSwitch" class="switch-input" data-action="drawer-ai" data-id="${item.id}" data-features="title"><span class="switch-track"></span></label>
-         <label class="ai-switch-wrap">🖼️ AI生图 (10金豆)<input type="checkbox" id="drawerImagesSwitch" class="switch-input" data-action="drawer-ai" data-id="${item.id}" data-features="images"><span class="switch-track"></span></label>
+    : `<div class="ai-edit-section">
+         <div class="ai-edit-block">
+           <div class="ai-edit-block-head">
+             <span>🏷️ AI标题</span>
+             ${titleDone ? `<span class="ai-done-tag">✅ 已有AI标题</span>` : ""}
+           </div>
+           ${titleDone
+             ? `<button class="ai-regen-btn" data-action="ai-run" data-id="${item.id}" data-features="title">🔄 重新生成</button>`
+             : `<button class="ai-gen-btn" data-action="ai-run" data-id="${item.id}" data-features="title">AI生成</button>`}
+         </div>
+         <div class="ai-edit-block">
+           <div class="ai-edit-block-head">
+             <span>🖼️ AI生图</span>
+             ${imagesDone ? `<span class="ai-done-tag">✅ 已有AI图片</span>` : ""}
+           </div>
+           ${imagesDone
+             ? `<button class="ai-regen-btn" data-action="ai-run" data-id="${item.id}" data-features="images">🔄 重新生成</button>`
+             : `<button class="ai-gen-btn" data-action="ai-run" data-id="${item.id}" data-features="images">AI生成</button>`}
+         </div>
        </div>`;
   drawer.innerHTML = `
     <button class="ghost-btn small" data-action="close-drawer">关闭</button>
@@ -1506,7 +1524,15 @@ function bindEvents() {
       if (action === "close-drawer") closeDrawer();
       if (action === "ai-run") {
         const feats = (actionButton.dataset.features || "").split(",").filter(Boolean);
+        const cost = feats.includes("images") ? "10" : "1";
+        const label = feats.includes("images") ? "AI生图" : "AI标题";
+        const isRegen = actionButton.classList.contains("ai-regen-btn");
+        const prompt = isRegen
+          ? `已有${label}，重新生成将覆盖原数据，本次扣 ${cost} 金豆，确定？`
+          : `确认生成 ${label}？本次将扣 ${cost} 金豆。`;
+        if (!confirm(prompt)) return;
         await runAIPipeline(id, feats);
+        closeDrawer();
       }
       if (action === "export") await exportItem(id);
       if (action === "reexport") await reexportItem(id);
@@ -1655,27 +1681,6 @@ function bindEvents() {
   const aiImagesT = $("#aiImagesToggle");
   if (aiTitleT) aiTitleT.addEventListener("change", () => saveAISettings("title"));
   if (aiImagesT) aiImagesT.addEventListener("change", () => saveAISettings("images"));
-
-  // AI编辑抽屉内的开关: change事件触发 → 二次确认 → 跑AI → 复位
-  document.body.addEventListener("change", async (event) => {
-    const sw = event.target.closest('[data-action="drawer-ai"]');
-    if (!sw) return;
-    if (!sw.checked) return; // 只处理开启
-    const features = (sw.dataset.features || "").split(",").filter(Boolean);
-    const cost = features.includes("images") ? "10" : "1";
-    const label = features.includes("images") ? "AI生图" : "AI标题";
-    if (!confirm(`确认运行 ${label}？本次将扣 ${cost} 金豆。`)) {
-      sw.checked = false;
-      return;
-    }
-    try {
-      await runAIPipeline(sw.dataset.id, features);
-      closeDrawer();
-    } catch (error) {
-      toast(error.message || "AI任务启动失败。", "error");
-    }
-    sw.checked = false; // 一次性操作, 复位
-  });
 
   $("#batchMenu").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-batch]");

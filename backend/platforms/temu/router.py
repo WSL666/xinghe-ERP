@@ -451,7 +451,9 @@ async def temu_ai_run(import_id: int,
     if not features:
         raise _err("未选择 AI 功能", 400)
 
-    from billing.store import hold_amount_for, hold_beans, get_available_beans
+    from billing.store import hold_amount_for, hold_beans, get_available_beans, reset_billing_for_import
+    # 重新触发前清除旧计费记录, 让新一轮 hold→settle 正常走
+    reset_billing_for_import(uid, import_id)
     hold_amount = hold_amount_for(features)
     avail = get_available_beans(uid)
     held = hold_beans(uid, hold_amount, import_id)
