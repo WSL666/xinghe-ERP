@@ -27,6 +27,20 @@ function updateShopStatus() {
   });
 }
 
+function toggleKeyPanel(show) {
+  const panel = document.getElementById('key-panel');
+  if (!panel) return;
+  const willShow = show ?? (panel.style.display === 'none');
+  panel.style.display = willShow ? 'flex' : 'none';
+  if (willShow) {
+    chrome.storage.local.get(['shopConfig'], result => {
+      const el = document.getElementById('shop-api-key');
+      if (el) el.value = (result.shopConfig || {}).apiKey || '';
+      el && el.focus();
+    });
+  }
+}
+
 async function saveShopConfig() {
   const cfg = {};
   const el = document.getElementById('shop-api-key');
@@ -34,6 +48,7 @@ async function saveShopConfig() {
   if (val) cfg.apiKey = val;
   await chrome.storage.local.set({ shopConfig: cfg });
   cachedShopConfig = cfg;
+  toggleKeyPanel(false);  // 保存后自动收起
   updateShopStatus();
   refreshBeansStatus();
 }
@@ -93,19 +108,18 @@ async function refreshBeansStatus() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  // 初始化: 填入已保存的密钥
-  chrome.storage.local.get(['shopConfig'], result => {
-    const cfg = result.shopConfig || {};
-    const el = document.getElementById('shop-api-key');
-    if (el) el.value = cfg.apiKey || '';
-  });
   updateShopStatus();
   refreshBeansStatus();
 
+  // 配置按钮: 展开密钥输入面板
+  const cfgBtn = document.getElementById('cfg-btn');
+  if (cfgBtn) cfgBtn.addEventListener('click', () => toggleKeyPanel());
+  // 取消按钮: 收起
+  const cancelBtn = document.getElementById('cfg-cancel-btn');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => toggleKeyPanel(false));
   // 保存按钮
   const saveBtn = document.getElementById('shop-save-btn');
   if (saveBtn) saveBtn.addEventListener('click', () => saveShopConfig());
-
   // 回车也能保存
   const keyInput = document.getElementById('shop-api-key');
   if (keyInput) keyInput.addEventListener('keydown', (e) => {
@@ -614,7 +628,8 @@ document.getElementById('sendPipelineBtn').addEventListener('click', async () =>
     const shopCfg = await getShopConfig();
     const pipelineCfg = buildPipelineConfig(shopCfg);
     if (!pipelineCfg.apiKey) {
-      throw new Error('未填写 API 密钥，请点「配置」填入插件 API 密钥。');
+      toggleKeyPanel(true);  // 自动展开密钥面板
+      throw new Error('❌ 请先填写 API 密钥（从网站「设置」复制后点保存）');
     }
     const rawSummary = collectedData.rawSummary || {};
     const skuList = rawSummary.skuList || [];
