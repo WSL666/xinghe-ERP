@@ -1,0 +1,72 @@
+/* 通快采集悬浮按钮 — 所有样式都加 tk- 前缀, 避免污染页面 */
+#tk-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #fb7701, #ff5722);
+  box-shadow: 0 4px 16px rgba(251, 119, 1, 0.4);
+  cursor: pointer;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+#tk-fab:hover { transform: scale(1.08); }
+#tk-fab:active { transform: scale(0.95); }
+#tk-fab.dragging { transition: none; cursor: grabbing; opacity: 0.8; }
+#tk-fab img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  pointer-events: none;
+  filter: brightness(0) invert(1); /* 白色图标 */
+}
+/* 状态点 */
+#tk-fab .tk-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+}
+.tk-dot.green { background: #27ae60; }
+.tk-dot.red { background: #e74c3c; }
+.tk-dot.yellow { background: #f39c12; }
+.tk-dot.gray { background: #aaa; }
+/* 旋转加载 */
+#tk-fab.loading { animation: tk-spin 0.8s linear infinite; }
+@keyframes tk-spin { to { transform: rotate(360deg); } }
+
+/* 结果提示框 */
+#tk-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 88px;
+  max-width: 300px;
+  z-index: 2147483646;
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #333;
+  background: #fff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  display: none;
+  word-break: break-all;
+}
+#tk-toast.show { display: block; animation: tk-fadein 0.2s ease; }
+#tk-toast.success { border-left: 4px solid #27ae60; }
+#tk-toast.error { border-left: 4px solid #e74c3c; }
+#tk-toast.warn { border-left: 4px solid #f39c12; }
+@keyframes tk-fadein {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
