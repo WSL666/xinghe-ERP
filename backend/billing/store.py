@@ -27,10 +27,25 @@ from store import db_conn
 
 # ── 计费常量 ──
 BEANS_FLOOR = -10              # 可用余额下限(允许欠到此)
+COST_TITLE = 1                 # AI标题(翻译)固定扣 1
+HOLD_IMAGES = 10               # AI生图固定 hold 10(多了退少了扣)
 HOLD_VISION = 1                # 视觉解析的冻结额度(成功必扣 1)
-HOLD_PER_IMAGE = 1             # 每张输入图的冻结额度(每张成功图扣 1)
-# 悲观预扣总额度 = HOLD_VISION + HOLD_PER_IMAGE * 输入图数
-# 例: 10 张输入图 → 冻结 1 + 10 = 11 金豆。100 金豆约可排 10 条链接。
+HOLD_PER_IMAGE = 1             # 每张成功图的扣费(结算时按实际成功数)
+
+
+def hold_amount_for(features: list[str]) -> int:
+    """按选中的 AI 模块算固定 hold 额度。
+
+    - ["title"]            → 1 (标题)
+    - ["images"]           → 10 (生图: 视觉1 + 生图上限, 固定10)
+    - ["title","images"]   → 11 (全链路)
+    """
+    amt = 0
+    if "title" in features:
+        amt += COST_TITLE
+    if "images" in features:
+        amt += HOLD_IMAGES
+    return amt
 
 
 def init_billing_tables() -> None:
@@ -92,41 +107,44 @@ def get_available_beans(user_id: int) -> int:
     return int(row["beans"]) - int(row.get("frozen_beans") or 0)
 
 
-def hold_amount_for(image_count: int) -> int:
-    """一条链接的悲观预扣上限: 视觉1 + 每张输入图1。"""
-    return HOLD_VISION + HOLD_PER_IMAGE * max(0, image_count)
-
 
 def get_hold_amount_for_import(user_id: int, import_id: int) -> int:
     """查某条 import 当初预扣了多少(用于删除时退还冻结)。
 
-    返回 frozen 额度: 优先从 raw_json 重算 hold_amount_for(image_count),
-    找不到则退回 frozen_beans 全额(安全兜底)。
+    从 raw_json.ai_features 算固定 hold 额度。
     返回 0 表示无需退还。
     """
     with db_conn() as conn:
-        # 是否有 hold 记录
         held = conn.execute(
             "SELECT 1 FROM bean_transactions WHERE import_id = %s AND reason = 'hold' LIMIT 1",
             (import_id,),
         ).fetchone()
         if not held:
             return 0
-        # 是否已结算/已释放(amount <> 0 的记录)
         done = conn.execute(
             "SELECT 1 FROM bean_transactions WHERE import_id = %s AND amount <> 0 LIMIT 1",
             (import_id,),
         ).fetchone()
         if done:
             return 0
-    # 未结算: 重新算 hold 额度
     try:
         from store import get_raw_import
         raw = get_raw_import(user_id, import_id)
         if raw:
-            product_data = raw.get("product", {}) or {}
-            total_images = len((product_data.get("galleryImages", []) or [])[:10])
-            return hold_amount_for(total_images)
+            return hold_amount_for(raw.get("ai_features") or [])
+    except Exception:
+        pass
+    # raw_json 可能不包含 ai_features, 兜底直接查 imports 表
+    try:
+        with db_conn() as conn:
+            row = conn.execute(
+                "SELECT ai_features FROM imports WHERE id = %s AND user_id = %s",
+                (import_id, user_id),
+            ).fetchone()
+            if row:
+                import json as _json
+                feats = row["ai_features"] if isinstance(row["ai_features"], list) else _json.loads(row["ai_features"] or "[]")
+                return hold_amount_for(feats)
     except Exception:
         pass
     return 0
@@ -189,7 +207,8 @@ def hold_beans(user_id: int, amount: int, import_id: int) -> dict[str, Any] | No
 
 
 def settle_beans(user_id: int, import_id: int, hold_amount: int,
-                 vision_ok: bool, success_images: int) -> dict[str, Any] | None:
+                 vision_ok: bool, success_images: int,
+                 title_ok: bool = False) -> dict[str, Any] | None:
     """任务跑完结算: 解冻预扣额度, 按实际成功数真扣, 多冻的退还。
 
     hold_amount = 当初 hold 的额度(hold_amount_for 算出的上限)。
@@ -201,7 +220,12 @@ def settle_beans(user_id: int, import_id: int, hold_amount: int,
     幂等: 同 import 已结算(有 amount<0 流水)则跳过。
     返回: {charged, balance_after}; 无 hold 记录返回 None。
     """
-    actual = (HOLD_VISION if vision_ok else 0) + HOLD_PER_IMAGE * max(0, success_images)
+    actual = 0
+    if title_ok:
+        actual += COST_TITLE
+    if vision_ok:
+        actual += HOLD_VISION
+    actual += HOLD_PER_IMAGE * max(0, success_images)
     with db_conn() as conn:
         # 幂等: 已有消费结算 → 跳过
         settled = conn.execute(

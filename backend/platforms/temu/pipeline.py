@@ -269,7 +269,18 @@ def execute(
     """
     raw_import = store.get_raw_import(user_id, import_id)
     if not raw_import:
-        # 记录已被删除 → 静默跳过(行已不存在, 无法标记 error)
+        return
+
+    # AI 模块化: 只跑用户选中的模块 (title / images)
+    ai_features = raw_import.get("ai_features") or []
+    run_title = "title" in ai_features
+    run_images = "images" in ai_features
+    # 如果没选任何模块(不应该入队), 直接标 done 不跑
+    if not run_title and not run_images:
+        try:
+            store.update_ai_status(user_id, import_id, "done", "无AI模块")
+        except Exception:
+            pass
         return
 
     product = parse_product(raw_import)
@@ -286,11 +297,19 @@ def execute(
     # 旧版 step1 和 step3 各下载一次,白费一次网络往返。现在只下一次。
     store.update_status(user_id, import_id, "generating", "downloading source images")
     try:
+        store.update_ai_status(user_id, import_id, "generating", "AI处理中")
+    except Exception:
+        pass
+    try:
         if _timed_out():
             raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s before download")
         image_context = collect_product_images([to_pipeline_input(product)])
     except Exception as exc:
         store.update_status(user_id, import_id, "error", f"image download failed: {exc}")
+        try:
+            store.update_ai_status(user_id, import_id, "error", f"图片下载失败: {exc}")
+        except Exception:
+            pass
         store.update_finished_at(user_id, import_id)
         return
 
@@ -368,25 +387,40 @@ def execute(
 
     t1 = threading.Thread(target=_w1, daemon=True)
     t1v = threading.Thread(target=_w1v, daemon=True)
-    t2 = threading.Thread(target=_w2, daemon=True)
-    t3 = threading.Thread(target=_w3, daemon=True)
-    t1.start(); t1v.start(); t2.start(); t3.start()
-    t1.join(timeout=_time_left())
-    t1v.join(timeout=_time_left())
-    t2.join(timeout=_time_left())
-    t3.join(timeout=_time_left())
-    if t2.is_alive() or t3.is_alive():
-        store.update_status(user_id, import_id, "error", f"translation/vision exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s deadline")
+    threads_to_join = [t1, t1v]
+    if run_title:
+        t2 = threading.Thread(target=_w2, daemon=True)
+        t2.start()
+        threads_to_join.append(t2)
+    if run_images:
+        t3 = threading.Thread(target=_w3, daemon=True)
+        t3.start()
+        threads_to_join.append(t3)
+    t1.start(); t1v.start()
+    for t in threads_to_join:
+        t.join(timeout=_time_left())
+    # 检查超时: 只有选中的模块才算
+    timed_out_step = False
+    if run_title and t2.is_alive():
+        timed_out_step = True
+    if run_images and t3.is_alive():
+        timed_out_step = True
+    if timed_out_step:
+        store.update_status(user_id, import_id, "error", f"AI exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s deadline")
+        try:
+            store.update_ai_status(user_id, import_id, "error", "AI处理超时")
+        except Exception:
+            pass
         store.update_finished_at(user_id, import_id)
         return
 
     s2 = results.get("step2", {})
     s3 = results.get("step3", {})
 
-    # 3. 生图(依赖视觉)
+    # 3. 生图(依赖视觉) — 仅 AI生图模块
     generated: list[dict[str, Any]] = []
     step4_ok = False
-    if s3.get("ok"):
+    if run_images and s3.get("ok"):
         vision = s3["vision"]
         store.update_status(user_id, import_id, "generating", "vision done, image generation running")
         # 清空旧图片(防止崩溃重跑时残留重复 append)
@@ -423,28 +457,34 @@ def execute(
     # 4. 收尾
     ok_count = sum(1 for g in generated if g.get("generated_image"))
     fail_count = sum(1 for g in generated if g.get("error"))
-    done = s2.get("ok") and s3.get("ok") and step4_ok
+    # done 判断: 只看选中的模块是否都成功
+    title_ok = bool(s2.get("ok")) if run_title else True
+    images_ok = bool(s3.get("ok")) and step4_ok if run_images else True
+    done = title_ok and images_ok
     msg = f"success {ok_count}" + (f", failed {fail_count}" if fail_count else "")
-    if not s2.get("ok"):
+    if run_title and not s2.get("ok"):
         msg = "translation failed; " + msg
-    if not s3.get("ok"):
+    if run_images and not s3.get("ok"):
         msg = "vision failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
+    try:
+        store.update_ai_status(user_id, import_id, "done" if done else "error", msg)
+    except Exception:
+        pass
     store.update_finished_at(user_id, import_id)
     # ── 结算计费(hold→settle/release, 一条链接一条流水) ──
     # hold 在入队时已冻结悲观上限; 这里按实际成功数结算, 多冻的退还。
     # 实际成本 = 视觉成功1 + 成功图数; 全失败则 release 不扣。
     try:
         from billing.store import settle_beans, release_beans, hold_amount_for
-        # 输入图数: 用采集到的原图数(与入队时的 total_images 口径一致)
-        input_image_count = len(image_context.get("image_bytes_list") or [])
-        hold_amount = hold_amount_for(input_image_count)
-        vision_ok = bool(s3.get("ok"))
-        success_images = sum(1 for g in generated if g.get("generated_image"))
-        if vision_ok or success_images > 0:
+        hold_amount = hold_amount_for(ai_features)
+        vision_ok = bool(s3.get("ok")) if run_images else False
+        success_images = sum(1 for g in generated if g.get("generated_image")) if run_images else 0
+        title_settle_ok = bool(s2.get("ok")) if run_title else False
+        if title_settle_ok or vision_ok or success_images > 0:
             # 有任一项成功 → 结算(按实际成本扣, 多冻的退还)
             result = settle_beans(user_id, import_id, hold_amount,
-                                  vision_ok, success_images)
+                                  vision_ok, success_images, title_ok=title_settle_ok)
             if result:
                 log(f"结算: user={user_id} import={import_id} "
                     f"视觉={'1' if vision_ok else '0'} 图{success_images} "

@@ -29,6 +29,7 @@ from store import (
     get_raw_import, get_user_by_api_key, get_user_by_id, get_user_by_uid, init_db, mark_imports_exported,
     open_pool, unmark_imports_exported,
     insert_import, list_imports, update_raw_import, update_status, edit_ai_image,
+    update_ai_status, set_ai_features, update_ai_settings, get_ai_settings,
 )
 
 from platforms.temu.adapter import from_db_row, parse_product
@@ -103,37 +104,43 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
     if not product_data or not skus:
         raise _err("missing product or skus", 400)
 
-    # 产品属性(pid/vid/templatePid)统一在导出时用最新 attr_db 补全,
-    # 入库只存采集端原始 propName/propValue/refPid, 避免存快照导致换库后老数据失效。
-
-    # 预扣(hold)计费: 入队前冻结这条链接的悲观上限(视觉1 + 输入图数*1)。
-    # 冻结即时降低可用余额, 天然防超扣(支持未来多并发)。
-    from billing.store import (
-        hold_amount_for, hold_beans, BEANS_FLOOR, get_available_beans,
-    )
-    total_images = len((product_data.get("galleryImages", []) or [])[:10])
-    hold_amount = hold_amount_for(total_images)
-    try:
-        avail = get_available_beans(int(user["id"]))
-    except Exception:
-        # 查询失败不阻断(放行, 宁可后扣费也不误伤)
-        avail = 1
-    if avail <= BEANS_FLOOR:
-        raise _err("金豆不足，请充值后再试", 402)
-
     payload = {**payload, "platform": "temu"}
-    import_id = insert_import(int(user["id"]), payload)
-    # 预扣冻结: 失败说明可用余额不够本条上限 → 标 insufficient, 不入队
-    held = hold_beans(int(user["id"]), hold_amount, import_id)
-    if not held:
-        update_status(int(user["id"]), import_id, "insufficient",
-                      f"金豆不足(需冻结{hold_amount}, 可用{avail})")
-        raise _err(f"金豆不足，本条需冻结{hold_amount}金豆，当前可用{avail}，请充值后再试", 402)
-    run_auto_pipeline(int(user["id"]), import_id)
-    # 顺带返回可用余额(插件据此提示/置灰, 无需插件额外请求)
+    uid = int(user["id"])
+    import_id = insert_import(uid, payload)
+
+    # 采集免费无限: 存库后 status=collected, 不扣费不入队
+    update_status(uid, import_id, "collected", "采集完成")
+
+    # 检查用户开了哪些 AI 模块 → 自动入队
+    ai_cfg = get_ai_settings(uid)
+    features = []
+    if ai_cfg.get("ai_title_enabled"):
+        features.append("title")
+    if ai_cfg.get("ai_images_enabled"):
+        features.append("images")
+
+    from billing.store import hold_amount_for as _hold_amt, hold_beans, get_available_beans
+
+    if features:
+        hold_amount = _hold_amt(features)
+        try:
+            avail = get_available_beans(uid)
+        except Exception:
+            avail = 1
+        held = hold_beans(uid, hold_amount, import_id)
+        if held:
+            set_ai_features(uid, import_id, features)
+            run_auto_pipeline(uid, import_id)
+            try:
+                from store import update_ai_status as _uas
+                _uas(uid, import_id, "queued", "AI排队中")
+            except Exception:
+                pass
+        else:
+            update_ai_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
+
     try:
-        from billing.store import get_available_beans as _gab
-        avail_after = _gab(int(user["id"]))
+        avail_after = get_available_beans(uid)
     except Exception:
         avail_after = None
     return _ok(
@@ -141,7 +148,7 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
         title=product_data.get("title", ""),
         sku_count=len(skus),
         total_images=len((product_data.get("galleryImages", []) or [])[:10]),
-        status="queued",
+        status="collected",
         available=avail_after,
     )
 
@@ -379,8 +386,9 @@ async def temu_restore(import_id: int,
     uid = int(user["id"])
     if not get_import(uid, import_id):
         raise _err(f"import {import_id} not found", 404)
-    update_status(uid, import_id, "pending", "restored from error box")
-    return _ok(import_id=import_id, status="pending")
+    update_status(uid, import_id, "collected", "restored from error box")
+    update_ai_status(uid, import_id, "", "")
+    return _ok(import_id=import_id, status="collected")
 
 
 @router.post("/imports/{import_id}/ai-image/promote")
@@ -431,14 +439,53 @@ async def temu_ai_image_restore(import_id: int, payload: dict[str, Any],
     return _ok(import_id=import_id, generated=generated)
 
 
-@router.post("/imports/{import_id}/generate")
-async def temu_generate(import_id: int,
-                        user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+@router.post("/imports/{import_id}/ai-run")
+async def temu_ai_run(import_id: int,
+                      payload: dict[str, Any] = Body(default=None),
+                      user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """手动触发某条链接的 AI 处理。features: ["title"] / ["images"] / ["title","images"]。"""
     uid = int(user["id"])
     if not get_import(uid, import_id):
         raise _err(f"import {import_id} not found", 404)
+    features = (payload or {}).get("features") or []
+    if not features:
+        raise _err("未选择 AI 功能", 400)
+
+    from billing.store import hold_amount_for, hold_beans, get_available_beans
+    hold_amount = hold_amount_for(features)
+    avail = get_available_beans(uid)
+    held = hold_beans(uid, hold_amount, import_id)
+    if not held:
+        update_ai_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
+        raise _err(f"金豆不足，需冻结{hold_amount}金豆，当前可用{avail}", 402)
+
+    set_ai_features(uid, import_id, features)
+    update_ai_status(uid, import_id, "queued", "AI排队中")
     run_auto_pipeline(uid, import_id)
-    return _ok(import_id=import_id, status="queued")
+    try:
+        avail_after = get_available_beans(uid)
+    except Exception:
+        avail_after = None
+    return _ok(import_id=import_id, features=features, status="queued", available=avail_after)
+
+
+@router.get("/ai-settings")
+async def temu_ai_settings_get(user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """读用户的 AI 开关设置。"""
+    return _ok(**get_ai_settings(int(user["id"])))
+
+
+@router.post("/ai-settings")
+async def temu_ai_settings_set(payload: dict[str, Any] = Body(default=None),
+                               user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """更新用户的 AI 开关设置。payload: {ai_title_enabled: bool, ai_images_enabled: bool}。"""
+    uid = int(user["id"])
+    title = (payload or {}).get("ai_title_enabled")
+    images = (payload or {}).get("ai_images_enabled")
+    result = update_ai_settings(uid,
+                                title_enabled=bool(title) if title is not None else None,
+                                images_enabled=bool(images) if images is not None else None)
+    return _ok(**result)
 
 
 @router.get("/health")

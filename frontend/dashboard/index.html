@@ -34,6 +34,7 @@
             <button class="nav-item nav-sub-item" data-view="boxOzon" type="button">OZON采集箱</button>
             <button class="nav-item nav-sub-item" data-view="exportedAll" type="button">已导出</button>
             <button class="nav-item nav-sub-item" data-view="errorBox" type="button">错误汇总</button>
+            <button class="nav-item nav-sub-item" data-view="insufficientBox" type="button">金豆不足</button>
           </div>
         </div>
 
@@ -138,6 +139,11 @@
       <section id="productsPanel" class="view-panel">
         <section class="card">
           <div class="card-head">
+             <div class="ai-toggles" id="aiToggles">
+               <span class="ai-toggle-label">AI自动处理</span>
+               <label class="ai-toggle"><input type="checkbox" id="aiTitleToggle"><span class="ai-toggle-text">🏷️ AI标题</span></label>
+               <label class="ai-toggle"><input type="checkbox" id="aiImagesToggle"><span class="ai-toggle-text">🖼️ AI生图</span></label>
+             </div>
              <div class="batch-wrap" id="batchWrap">
                <button class="ghost-btn" id="batchBtn" type="button">批量处理 ▾</button>
                <div class="batch-menu" id="batchMenu" hidden>

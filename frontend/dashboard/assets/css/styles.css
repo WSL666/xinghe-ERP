@@ -391,6 +391,11 @@ textarea:focus {
   background: #d7e8f3;
 }
 
+.badge.collected {
+  color: #475569;
+  background: #e2e8f0;
+}
+
 .status-pill.queued,
 .badge.queued {
   color: #5b4b8a;
@@ -1978,3 +1983,69 @@ tbody tr:nth-child(even) td {
 .tx-tag.tx-in { background: #dcfce7; color: #16a34a; }
 .tx-tag.tx-out { background: #fee2e2; color: #dc2626; }
 
+
+/* AI 开关区 */
+.ai-toggles {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.ai-toggle-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--clay);
+  white-space: nowrap;
+}
+.ai-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #3b4741;
+  margin: 0;
+}
+.ai-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--clay);
+  cursor: pointer;
+}
+.ai-toggle-text { white-space: nowrap; }
+
+/* AI 状态徽标 */
+.ai-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 6px;
+  margin-right: 3px;
+  white-space: nowrap;
+}
+.ai-badge.done { background: #e6f9ee; color: #27ae60; }
+.ai-badge.queued { background: #fff8e6; color: #e67e22; }
+.ai-badge.generating { background: #e6f0ff; color: #007bff; }
+.ai-badge.error { background: #fdeaea; color: #e74c3c; }
+.ai-badge.insufficient { background: #fdeaea; color: #e74c3c; }
+.ai-badge.idle { background: #f0f0f0; color: #999; }
+
+/* 手动 AI 按钮 */
+.ai-action-btn {
+  border: 1px solid #ddd;
+  background: #fff;
+  color: #666;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-right: 3px;
+  transition: all 0.15s;
+}
+.ai-action-btn:hover { border-color: var(--clay); color: var(--clay); }
+.ai-action-btn.primary { background: linear-gradient(135deg, #fb7701, #ff5722); color: #fff; border: none; }

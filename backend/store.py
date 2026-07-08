@@ -235,6 +235,9 @@ def init_db() -> None:
             ("started_at", "TIMESTAMPTZ"),
             ("platform", "TEXT NOT NULL DEFAULT 'temu'"),
             ("exported", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("ai_features", "JSONB NOT NULL DEFAULT '[]'::jsonb"),
+            ("ai_status", "TEXT NOT NULL DEFAULT ''"),
+            ("ai_status_msg", "TEXT NOT NULL DEFAULT ''"),
         ]:
             if not _column_exists(conn, "imports", col):
                 conn.execute(f"ALTER TABLE imports ADD COLUMN {col} {col_def}")
@@ -275,6 +278,8 @@ def init_db() -> None:
         for col, col_def in [
             ("enterprise_id", "BIGINT"),
             ("role", "TEXT NOT NULL DEFAULT 'member'"),
+            ("ai_title_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("ai_images_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]:
             if not _column_exists(conn, "users", col):
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")
@@ -465,6 +470,8 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
         item["finished_at"] = item["finished_at"].strftime("%Y-%m-%d %H:%M:%S")
     for key in ("step2_done", "step3_done", "step4_done", "exported"):
         item[key] = 1 if item.get(key) else 0
+    # AI 状态字段透传给前端
+    item["ai_features"] = _json(item.get("ai_features"), [])
     # ref_code: 用户uid+序号(如 aB3xK9mP1), 供展示和查询用
     owner_uid = item.pop("owner_uid", None) or ""
     seq = item.get("user_seq") or 0
@@ -489,15 +496,15 @@ def list_imports(user_id: int, platform: str | None = None, exported: bool = Fal
         clauses = ["i.user_id = %s"]
         params: list = [user_id]
         if error_box:
-            clauses.append("i.status = 'error'")
+            clauses.append("i.ai_status = 'error'")
         elif insufficient_box:
-            clauses.append("i.status = 'insufficient'")
+            clauses.append("i.ai_status = 'insufficient'")
         else:
             clauses.append("i.exported = %s")
             params.append(exported)
-            # 采集箱 + 已导出箱 都排除 error 和 insufficient(各自单独成箱)
-            clauses.append("i.status != 'error'")
-            clauses.append("i.status != 'insufficient'")
+            # 采集箱 + 已导出箱 都排除 AI 失败和余额不足(各自单独成箱)
+            clauses.append("i.ai_status != 'error'")
+            clauses.append("i.ai_status != 'insufficient'")
         if platform:
             clauses.append("i.platform = %s")
             params.append(platform)
@@ -518,14 +525,16 @@ def list_imports(user_id: int, platform: str | None = None, exported: bool = Fal
 def mark_imports_exported(user_id: int, import_ids: list[int]) -> int:
     """把记录标记为已导出(归档), 返回实际更新的行数。
 
-    只归档 status='done' 的记录: 运行中/排队中的不归档, 防止误移走。
+    允许归档: status='done'(AI完成) 或 status='collected'(纯采集未跑AI)。
+    排除运行中/排队中: status IN ('queued','generating')。
     """
     if not import_ids:
         return 0
     with db_conn() as conn:
         cur = conn.execute(
             "UPDATE imports SET exported = TRUE, updated_at = now() "
-            "WHERE user_id = %s AND id = ANY(%s) AND status = 'done'",
+            "WHERE user_id = %s AND id = ANY(%s) "
+            "AND status NOT IN ('queued', 'generating')",
             (user_id, import_ids),
         )
     return cur.rowcount
@@ -702,6 +711,55 @@ def update_status(user_id: int, import_id: int, status: str, msg: str = "") -> N
         )
 
 
+def update_ai_status(user_id: int, import_id: int, status: str, msg: str = "") -> None:
+    """更新某条 import 的 AI 处理状态。"""
+    with db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE imports SET ai_status = %s, ai_status_msg = %s, updated_at = now()
+            WHERE user_id = %s AND id = %s
+            """,
+            (status, msg, user_id, import_id),
+        )
+
+
+def set_ai_features(user_id: int, import_id: int, features: list[str]) -> None:
+    """记录本条 import 实际跑了哪些 AI 模块。"""
+    with db_conn() as conn:
+        conn.execute(
+            """
+            UPDATE imports SET ai_features = %s, updated_at = now()
+            WHERE user_id = %s AND id = %s
+            """,
+            (json.dumps(features), user_id, import_id),
+        )
+
+
+def update_ai_settings(user_id: int, title_enabled: bool | None = None,
+                       images_enabled: bool | None = None) -> dict[str, Any]:
+    """更新用户的 AI 开关设置, 返回最新值。"""
+    with db_conn() as conn:
+        if title_enabled is not None:
+            conn.execute("UPDATE users SET ai_title_enabled = %s WHERE id = %s", (title_enabled, user_id))
+        if images_enabled is not None:
+            conn.execute("UPDATE users SET ai_images_enabled = %s WHERE id = %s", (images_enabled, user_id))
+        row = conn.execute(
+            "SELECT ai_title_enabled, ai_images_enabled FROM users WHERE id = %s", (user_id,)
+        ).fetchone()
+    return {"ai_title_enabled": bool(row["ai_title_enabled"]) if row else False,
+            "ai_images_enabled": bool(row["ai_images_enabled"]) if row else False}
+
+
+def get_ai_settings(user_id: int) -> dict[str, Any]:
+    """读用户的 AI 开关设置。"""
+    with db_conn() as conn:
+        row = conn.execute(
+            "SELECT ai_title_enabled, ai_images_enabled FROM users WHERE id = %s", (user_id,)
+        ).fetchone()
+    return {"ai_title_enabled": bool(row["ai_title_enabled"]) if row else False,
+            "ai_images_enabled": bool(row["ai_images_enabled"]) if row else False}
+
+
 def update_videos(user_id: int, import_id: int, videos: list[dict[str, Any]]) -> None:
     with db_conn() as conn:
         conn.execute(
@@ -844,7 +902,7 @@ def list_resumable_imports() -> list[dict[str, Any]]:
     """
     with db_conn() as conn:
         rows = conn.execute(
-            "SELECT id, user_id FROM imports WHERE status IN ('queued', 'generating') ORDER BY id"
+            "SELECT id, user_id FROM imports WHERE ai_status IN ('queued', 'generating') ORDER BY id"
         ).fetchall()
     return [dict(row) for row in rows]
 

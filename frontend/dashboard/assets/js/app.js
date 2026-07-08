@@ -54,6 +54,7 @@ const views = {
   boxOzon: { title: "OZON采集箱", eyebrow: "商品采集箱" },
   exportedAll: { title: "已导出", eyebrow: "已导出" },
   errorBox: { title: "错误汇总", eyebrow: "失败/错误" },
+  insufficientBox: { title: "金豆不足", eyebrow: "待充值" },
   recharge: { title: "钱包", eyebrow: "账户" },
   settings: { title: "设置", eyebrow: "配置" },
   agent: { title: "智能体", eyebrow: "AI创作中心" },
@@ -70,6 +71,7 @@ const PANEL_ALIAS = {
   boxOzon: "products",
   exportedAll: "products",
   errorBox: "products",
+  insufficientBox: "products",
 };
 /**
  * 每个采集箱对应的平台值（与后端 imports.platform 一致，统一小写）。
@@ -86,6 +88,7 @@ const PLATFORM_BY_VIEW = {
 // 已导出箱视图集合(复用 products 面板, 但请求带 exported=true)
 const EXPORTED_VIEWS = { exportedAll: true };
 const ERROR_VIEW = "errorBox";
+const INSUFFICIENT_VIEW = "insufficientBox";
 const PLATFORM_LABEL = { temu: "TEMU", "1688": "1688", ozon: "OZON" };
 
 const $ = (selector) => document.querySelector(selector);
@@ -223,6 +226,7 @@ function clearSession() {
 function showApp() {
   $("#appView").classList.remove("is-hidden");
   syncApiText();
+  loadAISettings();
   setView(state.view);
   refreshData({ silent: true });
   startLiveSync();
@@ -260,13 +264,15 @@ function setApiStatus(status, text) {
 }
 
 function statusInfo(item) {
-  const status = item.status || "pending";
-  if (status === "done") return { cls: "ok", text: "已完成" };
-  if (status === "generating") return { cls: "running", text: "生成中" };
-  if (status === "translating") return { cls: "running", text: "翻译中" };
-  if (status === "queued") return { cls: "queued", text: "排队中" };
-  if (status === "error") return { cls: "error", text: "错误" };
-  return { cls: "pending", text: "待处理" };
+  // 采集状态(新架构固定 collected); 主要状态来自 ai_status
+  const ai = (item.ai_status || "").trim();
+  if (ai === "done") return { cls: "ok", text: "已完成" };
+  if (ai === "generating") return { cls: "running", text: "AI处理中" };
+  if (ai === "queued") return { cls: "queued", text: "AI排队中" };
+  if (ai === "error") return { cls: "error", text: "AI失败" };
+  if (ai === "insufficient") return { cls: "error", text: "金豆不足" };
+  // 无 AI 状态 → 纯采集
+  return { cls: "collected", text: "已采集" };
 }
 
 function basename(path) {
@@ -446,10 +452,14 @@ function filteredImports() {
 
 function renderStats() {
   $("#statTotal").textContent = state.imports.length;
-  $("#statDone").textContent = state.imports.filter((item) => item.status === "done").length;
+  $("#statDone").textContent = state.imports.filter((item) => (item.ai_status || "") === "done").length;
   $("#statImages").textContent = state.imports.reduce((sum, item) => sum + generatedOk(item).length, 0);
-  $("#statRunning").textContent = state.imports.filter((item) => item.status !== "done" && item.status !== "error").length;
-  $("#statFailed").textContent = state.imports.filter((item) => item.status === "error").length;
+  const aiActive = (s) => s === "queued" || s === "generating";
+  $("#statRunning").textContent = state.imports.filter((item) => aiActive((item.ai_status || "").trim())).length;
+  $("#statFailed").textContent = state.imports.filter((item) => {
+    const s = (item.ai_status || "").trim();
+    return s === "error" || s === "insufficient";
+  }).length;
 }
 
 function renderRecent() {
@@ -562,6 +572,42 @@ function renderVideoStrip(item) {
   return `<div class="image-row-stack">${srcRow}${aiRow}</div>`;
 }
 
+// AI 状态徽标
+function renderAIBadges(item) {
+  const aiStatus = (item.ai_status || "").trim();
+  const features = item.ai_features || [];
+  if (!features.length && !aiStatus) return "";
+  const titleDone = item.step2_done ? "done" : (aiStatus && features.includes("title") ? aiStatus : "");
+  const imagesDone = item.step3_done ? "done" : (aiStatus && features.includes("images") ? aiStatus : "");
+  let html = "";
+  if (features.includes("title") || titleDone) {
+    const cls = titleDone === "done" ? "done" : (aiStatus || "idle");
+    const icon = cls === "done" ? "✅" : cls === "generating" ? "⏳" : cls === "queued" ? "⏳" : cls === "error" ? "❌" : cls === "insufficient" ? "🔴" : "⬜";
+    html += `<span class="ai-badge ${cls}" title="AI标题">🏷️${icon}</span>`;
+  }
+  if (features.includes("images") || imagesDone) {
+    const cls = imagesDone === "done" ? "done" : (aiStatus || "idle");
+    const icon = cls === "done" ? "✅" : cls === "generating" ? "⏳" : cls === "queued" ? "⏳" : cls === "error" ? "❌" : cls === "insufficient" ? "🔴" : "⬜";
+    html += `<span class="ai-badge ${cls}" title="AI生图">🖼️${icon}</span>`;
+  }
+  if (!html && aiStatus === "insufficient") {
+    html += `<span class="ai-badge insufficient">🔴金豆不足</span>`;
+  }
+  return html;
+}
+
+// AI 手动按钮 (仅未跑或失败时显示)
+function renderAIActions(item) {
+  const aiStatus = (item.ai_status || "").trim();
+  // 正在跑的显示状态, 不显示按钮
+  if (aiStatus === "queued" || aiStatus === "generating") return "";
+  if (aiStatus === "insufficient") {
+    return `<button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="title,images">重试AI</button>`;
+  }
+  // 已完成或未跑 → 显示手动按钮
+  return `<button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="title">🏷️标题</button><button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="images">🖼️生图</button><button class="ai-action-btn primary" data-action="ai-run" data-id="${item.id}" data-features="title,images">全链路</button>`;
+}
+
 function renderProducts() {
   const rows = filteredImports();
   const prevChecked = state.selectedIds || new Set();
@@ -569,6 +615,7 @@ function renderProducts() {
   const liveIds = new Set(rows.map((r) => Number(r.id)));
   const isExported = !!EXPORTED_VIEWS[state.view];
   const isError = state.view === ERROR_VIEW;
+  const isInsufficient = state.view === INSUFFICIENT_VIEW;
   for (const id of [...prevChecked]) {
     if (!liveIds.has(id)) prevChecked.delete(id);
   }
@@ -590,7 +637,7 @@ function renderProducts() {
             <div class="ref-row"><small class="ref-badge">ID: ${escapeHtml(item.ref_code || item.id)}</small><button class="ref-copy" data-action="copy-ref" data-ref="${escapeHtml(item.ref_code || item.id)}" title="复制编号" type="button">复制</button></div>
           </div>
         </td>
-        <td><span class="badge ${status.cls}" title="${escapeHtml(item.status_msg || "")}">${status.text}</span></td>
+        <td><span class="badge ${status.cls}" title="${escapeHtml(item.status_msg || "")}">${status.text}</span><div class="ai-badges">${renderAIBadges(item)}</div></td>
         <td>${renderImageRows(item.gallery_images || [], generated, item)}</td>
         <td>${renderSpecCell(item)}</td>
         <td>${renderVideoStrip(item)}</td>
@@ -601,7 +648,8 @@ function renderProducts() {
             <button data-action="detail" data-id="${item.id}">详情</button>
             <button disabled>编辑</button>
             <button disabled>导入</button>
-            ${isError ? `<button data-action="retry" data-id="${item.id}">重试</button><button data-action="restore" data-id="${item.id}">移回采集箱</button>` : isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
+            ${renderAIActions(item)}
+            ${isError || isInsufficient ? `<button data-action="retry" data-id="${item.id}">重试</button><button data-action="restore" data-id="${item.id}">移回采集箱</button>` : isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
             <button class="danger" data-action="delete" data-id="${item.id}">删除</button>
           </div>
         </td>
@@ -641,6 +689,7 @@ function setView(name) {
   if (state.view === "recharge") updateRechargePanel();
   syncNavGroup();
 
+  if (panelName === "products") loadAISettings();
   if (name === "settings") loadShopConfigForm();
 }
 
@@ -693,10 +742,12 @@ async function refreshData({ silent = false } = {}) {
   try {
     const isExported = !!EXPORTED_VIEWS[state.view];
     const isError = state.view === ERROR_VIEW;
+    const isInsufficient = state.view === INSUFFICIENT_VIEW;
     const qs = [];
     if (state.platform) qs.push(`platform=${encodeURIComponent(state.platform)}`);
     if (isExported) qs.push("exported=true");
     if (isError) qs.push("error=true");
+    if (isInsufficient) qs.push("insufficient=true");
     const url = qs.length ? `/api/temu/imports?${qs.join("&")}` : "/api/temu/imports";
     const data = await apiFetch(url);
     state.imports = Array.isArray(data.imports) ? data.imports : [];
@@ -720,14 +771,14 @@ let _lastSignature = "";
 
 function _activeImportCount() {
   return state.imports.filter((item) => {
-    const s = item.status || "pending";
-    return s === "queued" || s === "generating" || s === "translating" || s === "pending" || s === "error";
+    const s = (item.ai_status || "").trim();
+    return s === "queued" || s === "generating";
   }).length;
 }
 
 function _importsSignature() {
   return state.imports
-    .map((i) => `${i.id}:${i.status}:${i.step2_done}:${i.step3_done}:${i.step4_done}:${i.updated_at || ""}`)
+    .map((i) => `${i.id}:${i.ai_status || ""}:${i.step2_done}:${i.step3_done}:${i.step4_done}:${i.updated_at || ""}`)
     .join("|");
 }
 
@@ -769,16 +820,48 @@ async function loadCurrentUser() {
 }
 
 
-async function runStep(id, step) {
-  const labels = {
-    step2: "翻译",
-    step3: "视觉",
-    step4: "生成",
-    generate: "整体生成"
-  };
-  await apiFetch(`/api/temu/imports/${id}/${step}`, { method: "POST" });
-  toast(`${labels[step] || step} 已开始。`);
-  await refreshData({ silent: true });
+async function runAIPipeline(id, features) {
+  // 手动触发某条链接的 AI 处理 (标题/生图/全链路)
+  try {
+    await apiFetch(`/api/temu/imports/${id}/ai-run`, {
+      method: "POST",
+      body: JSON.stringify({ features }),
+    });
+    toast("AI任务已加入队列。");
+    state.selectedIds && state.selectedIds.delete(Number(id));
+    await refreshData({ silent: true });
+  } catch (error) {
+    toast(error.message || "AI任务启动失败。", "error");
+  }
+}
+
+async function loadAISettings() {
+  // 进入采集箱时读取 AI 开关状态
+  try {
+    const data = await apiFetch("/api/temu/ai-settings");
+    const t = $("#aiTitleToggle");
+    const i = $("#aiImagesToggle");
+    if (t) t.checked = !!data.ai_title_enabled;
+    if (i) i.checked = !!data.ai_images_enabled;
+  } catch {}
+}
+
+async function saveAISettings() {
+  const t = $("#aiTitleToggle");
+  const i = $("#aiImagesToggle");
+  if (!t || !i) return;
+  try {
+    await apiFetch("/api/temu/ai-settings", {
+      method: "POST",
+      body: JSON.stringify({
+        ai_title_enabled: t.checked,
+        ai_images_enabled: i.checked,
+      }),
+    });
+    toast(t.checked || i.checked ? "已开启AI自动处理。" : "已关闭AI自动处理。");
+  } catch (error) {
+    toast(error.message || "AI设置保存失败。", "error");
+  }
 }
 
 // 统一解析 Content-Disposition 中的文件名(优先 UTF-8 编码的 filename*)
@@ -892,9 +975,12 @@ async function reexportItem(id) {
 }
 
 async function retryItem(id) {
-  // 错误箱「重试」: 重新入队跑流水线
+  // 错误箱「重试」: 重新触发全链路 AI
   try {
-    await apiFetch(`/api/temu/imports/${id}/generate`, { method: "POST" });
+    await apiFetch(`/api/temu/imports/${id}/ai-run`, {
+      method: "POST",
+      body: JSON.stringify({ features: ["title", "images"] }),
+    });
     toast("已重新加入队列。");
     state.selectedIds && state.selectedIds.delete(Number(id));
     await refreshData({ silent: true });
@@ -935,7 +1021,10 @@ async function batchRetry() {
   let ok = 0;
   for (const id of ids) {
     try {
-      await apiFetch(`/api/temu/imports/${id}/generate`, { method: "POST" });
+      await apiFetch(`/api/temu/imports/${id}/ai-run`, {
+        method: "POST",
+        body: JSON.stringify({ features: ["title", "images"] }),
+      });
       state.selectedIds && state.selectedIds.delete(Number(id));
       ok++;
     } catch {}
@@ -980,8 +1069,10 @@ function selectedIds() {
 function updateBatchState() {
   const has = selectedIds().length > 0;
   const isError = state.view === ERROR_VIEW;
+  const isInsufficient = state.view === INSUFFICIENT_VIEW;
+  const showRetry = isError || isInsufficient;
   $("#batchDeleteBtn").disabled = !has;
-  if (isError) {
+  if (showRetry) {
     $("#batchExportBtn").hidden = true;
     const retry = $("#batchRetryBtn");
     if (retry) { retry.hidden = false; retry.disabled = !has; }
@@ -1387,10 +1478,10 @@ function bindEvents() {
       if (action === "detail") openDetail(id);
       if (action === "spec") openSpec(id);
       if (action === "close-drawer") closeDrawer();
-      if (action === "step2") await runStep(id, "step2");
-      if (action === "step3") await runStep(id, "step3");
-      if (action === "step4") await runStep(id, "step4");
-      if (action === "generate") await runStep(id, "generate");
+      if (action === "ai-run") {
+        const feats = (actionButton.dataset.features || "").split(",").filter(Boolean);
+        await runAIPipeline(id, feats);
+      }
       if (action === "export") await exportItem(id);
       if (action === "reexport") await reexportItem(id);
       if (action === "unexport") await unexportItem(id);
@@ -1532,6 +1623,12 @@ function bindEvents() {
     event.stopPropagation();
     toggleBatchMenu();
   });
+
+  // AI 开关: 切换即保存
+  const aiTitleT = $("#aiTitleToggle");
+  const aiImagesT = $("#aiImagesToggle");
+  if (aiTitleT) aiTitleT.addEventListener("change", saveAISettings);
+  if (aiImagesT) aiImagesT.addEventListener("change", saveAISettings);
 
   $("#batchMenu").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-batch]");
