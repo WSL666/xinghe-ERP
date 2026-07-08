@@ -10,6 +10,8 @@
   ],
   "host_permissions": [
     "*://*.temu.com/*",
+    "*://*.1688.com/*",
+    "*://*.ozon.com/*",
     "https://wangshilin888.com:8443/*"
   ],
   "action": {
@@ -25,7 +27,9 @@
   "content_scripts": [
     {
       "matches": [
-        "*://*.temu.com/*"
+        "*://*.temu.com/*",
+        "*://*.1688.com/*",
+        "*://*.ozon.com/*"
       ],
       "js": [
         "inject.js"
@@ -35,7 +39,9 @@
     },
     {
       "matches": [
-        "*://*.temu.com/*"
+        "*://*.temu.com/*",
+        "*://*.1688.com/*",
+        "*://*.ozon.com/*"
       ],
       "js": [
         "content.js"
@@ -54,7 +60,9 @@
         "tongkuai_image.png"
       ],
       "matches": [
-        "*://*.temu.com/*"
+        "*://*.temu.com/*",
+        "*://*.1688.com/*",
+        "*://*.ozon.com/*"
       ]
     }
   ],

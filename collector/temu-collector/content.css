@@ -30,7 +30,6 @@
   height: 28px;
   object-fit: contain;
   pointer-events: none;
-  filter: brightness(0) invert(1);
 }
 .tk-header .tk-name {
   color: #fff;
