@@ -2009,6 +2009,19 @@ tbody tr:nth-child(even) td {
   color: #3b4741;
   margin: 0;
 }
+.ai-batch-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #fb7701, #ff5722);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-left: 6px;
+}
+.ai-batch-btn:hover { opacity: 0.88; }
 /* iOS 风格滑动开关 */
 .switch-input { display: none; }
 .switch-track {

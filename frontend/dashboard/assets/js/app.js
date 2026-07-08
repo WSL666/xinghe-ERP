@@ -1040,9 +1040,6 @@ async function batchRetry() {
 
 async function batchAIProcess() {
   // 全自动批量AI处理: 扫描所有"已采集未跑AI"的链接, 按并发数分批跑完
-  toggleBatchMenu(false);
-
-  // 1. 读当前 AI 开关状态决定功能
   const titleOn = $("#aiTitleToggle")?.checked;
   const imagesOn = $("#aiImagesToggle")?.checked;
   const features = [];
@@ -1052,22 +1049,18 @@ async function batchAIProcess() {
     toast("请先开启至少一个 AI 开关（标题/生图）。", "error");
     return;
   }
-
-  // 2. 选并发数
   const concurrency = parseInt(prompt("并发数 (1-5):", "3"), 10);
   if (!concurrency || concurrency < 1 || concurrency > 5) {
     toast("并发数需在 1-5 之间。", "error");
     return;
   }
-
-  // 3. 拉取所有已采集未跑AI的链接
   toast("正在扫描已采集商品...");
   let pending = [];
   try {
     const data = await apiFetch("/api/temu/imports");
     pending = (data.imports || []).filter((item) => {
       const ai = (item.ai_status || "").trim();
-      return !ai || ai === "idle"; // 没跑过AI的
+      return !ai || ai === "idle";
     }).map((item) => item.id);
   } catch {
     toast("获取列表失败。", "error");
@@ -1077,8 +1070,6 @@ async function batchAIProcess() {
     toast("没有待处理的商品。");
     return;
   }
-
-  // 4. 分批全自动跑: 每组 concurrency 条, 跑完自动跑下一组
   toast(`开始批量AI处理: 共 ${pending.length} 条, 并发 ${concurrency}...`);
   let ok = 0, fail = 0;
   for (let i = 0; i < pending.length; i += concurrency) {
@@ -1095,7 +1086,6 @@ async function batchAIProcess() {
       if (results[j].status === "fulfilled") ok++;
       else fail++;
     }
-    // 每批跑完刷新一次数据
     await refreshData({ silent: true });
   }
   toast(`批量AI处理完成: 成功 ${ok}, 失败 ${fail}。`);
@@ -1139,11 +1129,7 @@ function updateBatchState() {
   const isError = state.view === ERROR_VIEW;
   const isInsufficient = state.view === INSUFFICIENT_VIEW;
   const showRetry = isError || isInsufficient;
-  const isProducts = PANEL_ALIAS[state.view] === "products" && !isError && !isInsufficient && !EXPORTED_VIEWS[state.view];
   $("#batchDeleteBtn").disabled = !has;
-  const aiBtn = $("#batchAIBtn");
-  if (aiBtn) aiBtn.hidden = !isProducts;
-  if (aiBtn && !aiBtn.hidden) aiBtn.disabled = !has;
   if (showRetry) {
     $("#batchExportBtn").hidden = true;
     const retry = $("#batchRetryBtn");
@@ -1749,6 +1735,9 @@ function bindEvents() {
   if (aiTitleT) aiTitleT.addEventListener("change", () => saveAISettings("title"));
   if (aiImagesT) aiImagesT.addEventListener("change", () => saveAISettings("images"));
 
+  const aiBatchBtn = $("#aiBatchBtn");
+  if (aiBatchBtn) aiBatchBtn.addEventListener("click", batchAIProcess);
+
   $("#batchMenu").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-batch]");
     if (!btn) return;
@@ -1766,8 +1755,6 @@ function bindEvents() {
       updateBatchState();
     } else if (action === "export") {
       batchExport();
-    } else if (action === "ai-process") {
-      batchAIProcess();
     } else if (action === "retry") {
       batchRetry();
     } else if (action === "delete") {
