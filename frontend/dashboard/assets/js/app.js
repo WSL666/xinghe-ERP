@@ -1035,7 +1035,10 @@ async function batchAIProcess() {
     const data = await apiFetch("/api/temu/imports");
     pending = (data.imports || []).filter((item) => {
       const ai = (item.ai_status || "").trim();
-      return !ai || ai === "idle";
+      const hasTitle = !!item.step2_done;
+      const hasImages = !!item.step4_done || (item.generated_json && item.generated_json.length > 0);
+      // 只跑真正没结果的: 没AI标题且没AI图片且不在运行中
+      return !hasTitle && !hasImages && ai !== "queued" && ai !== "generating";
     }).map((item) => item.id);
   } catch {
     toast("获取列表失败。", "error");
