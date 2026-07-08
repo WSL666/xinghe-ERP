@@ -82,47 +82,62 @@
       return clean;
     }
 
-    function addImg(url) {
+    function addImg(url, category) {
       const normalized = normalizeUrl(url);
       if (!normalized) return;
       if (normalized.includes('.gif') || normalized.includes('supplier-public-tag') || normalized.includes('algo_framework')) return;
       if (normalized.includes('upload_aimg')) {
-        const allowed = ['/goods_details/', '/commodity/', '/pho/', '/images/', '/gallery/'];
-        if (!allowed.some(p => normalized.includes(p))) return;
+        const allowedAimgPaths = ['/goods_details/', '/commodity/', '/pho/', '/temu/', '/product/'];
+        if (!allowedAimgPaths.some(p => normalized.includes(p))) return;
       }
-      if (allImgSet.has(normalized)) return;
-      allImgSet.add(normalized);
-      galleryImgList.push(normalized);
+      if (!allImgSet.has(normalized)) {
+        allImgSet.add(normalized);
+        if (category === 'gallery') galleryImgList.push(normalized);
+        else if (category === 'sku') skuImgList.push(normalized);
+      }
     }
 
-    // ===== 主图轮播 (gallery) — 与 extract.js 完全一致 =====
+    function addVideo(videoObj) {
+      if (!videoObj || !videoObj.videoUrl) return;
+      const url = normalizeUrl(videoObj.videoUrl);
+      if (!url) return;
+      if (!videoList.find(v => v.url === url)) {
+        videoList.push({
+          url,
+          poster: normalizeUrl(videoObj.url || ''),
+          width: videoObj.width || 0,
+          height: videoObj.height || 0
+        });
+      }
+    }
+
+    // ===== 以下与 extract.js 完全一致 =====
+
+    // 4.1 主图轮播 (gallery)
     const gallery = goods.gallery || [];
     gallery.forEach(item => {
-      if (item.url) addImg(item.url);
+      if (item.url) addImg(item.url, 'gallery');
+      if (item.video) addVideo(item.video);
     });
 
-    // 高清主图
-    if (goods.hdThumbUrl) addImg(goods.hdThumbUrl);
+    // 4.2 高清主图
+    if (goods.hdThumbUrl) {
+      addImg(goods.hdThumbUrl, 'gallery');
+    }
 
-    // ===== SKU 列表 (store.sku) — 与 extract.js 完全一致 =====
-    let skus = store.sku || goods.skuList || goods.skus || [];
+    // 4.3 商品主视频
+    if (goods.video) {
+      addVideo(goods.video);
+      if (goods.video.url) addImg(goods.video.url, 'gallery');
+    }
+
+    // 4.4 SKU 列表 (store.sku)
+    let skus = store.sku || [];
     if (!Array.isArray(skus)) skus = [];
     skus.forEach(sku => {
-      if (sku.thumbUrl) addImg(sku.thumbUrl);
-      if (sku.specShowImageUrl) addImg(sku.specShowImageUrl);
+      if (sku.thumbUrl) addImg(sku.thumbUrl, 'sku');
+      if (sku.specShowImageUrl) addImg(sku.specShowImageUrl, 'sku');
     });
-
-    // ===== 商品主视频 — 与 extract.js 一致 =====
-    if (goods.video) {
-      const v = goods.video;
-      const vUrl = normalizeUrl(v.url || v.videoUrl || v.playUrl || '');
-      if (vUrl) videoList.push({
-        url: vUrl,
-        poster: normalizeUrl(v.coverUrl || v.posterUrl || v.poster || ''),
-        width: v.width || 0,
-        height: v.height || 0,
-      });
-    }
 
     // 规格树
     const specLevelKeySet = new Set();

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "通快商品采集助手",
-  "version": "3.5",
+  "version": "4.0",
   "description": "一键采集Temu商品全部图片、标题、价格，基于页面原始数据确保完整性和准确性。【版本规则:每次更新插件 version +0.5, 如 1.0→1.5→2.0, 压缩包名自动带版本号】",
   "permissions": [
     "activeTab",
