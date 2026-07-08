@@ -164,7 +164,7 @@ async function doCollectAndSend() {
     return;
   }
 
-  // 2. 注入 inject.js 读取 rawData
+  // 2. 发指令给 inject.js (MAIN world, manifest world:MAIN 注入, 不受 CSP 拦截)
   let injectResult;
   try {
     injectResult = await new Promise((resolve) => {
@@ -177,10 +177,8 @@ async function doCollectAndSend() {
         resolve(event.data);
       };
       window.addEventListener('message', handler);
-      const script = document.createElement('script');
-      script.src = chrome.runtime.getURL('inject.js');
-      script.onload = function () { this.remove(); };
-      (document.head || document.documentElement).appendChild(script);
+      // 发指令触发 inject.js 执行采集
+      window.postMessage({ type: 'tk-collect' }, '*');
     });
   } catch (e) {
     setBtnState('❌ 采集失败', 'fail');
