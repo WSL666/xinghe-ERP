@@ -154,6 +154,39 @@ function normalizeApiBase(value) {
   return String(value || DEFAULT_API_BASE).trim().replace(/\/+$/, "");
 }
 
+const SHOP_FIELDS = [
+  "origin", "shipping", "site", "shopName",
+  "length", "width", "height", "weight",
+  "declarePrice", "retailPrice", "stock", "deliveryDays",
+  "skuClass", "skuClassQty", "skuClassUnit"
+];
+const SHOP_CONFIG_KEY = "xinghe_shop_config";
+
+function getShopConfig() {
+  try { return JSON.parse(localStorage.getItem(SHOP_CONFIG_KEY) || "{}") || {}; }
+  catch { return {}; }
+}
+
+function saveShopConfig(cfg) {
+  localStorage.setItem(SHOP_CONFIG_KEY, JSON.stringify(cfg));
+}
+
+function loadShopConfigForm() {
+  const cfg = getShopConfig();
+  document.querySelectorAll("#shopConfigForm input[data-shop]").forEach((inp) => {
+    inp.value = cfg[inp.dataset.shop] || "";
+  });
+}
+
+function collectShopConfigFromForm() {
+  const cfg = {};
+  document.querySelectorAll("#shopConfigForm input[data-shop]").forEach((inp) => {
+    const v = (inp.value || "").trim();
+    if (v) cfg[inp.dataset.shop] = v;
+  });
+  return cfg;
+}
+
 function apiUrl(path) {
   return `${state.apiBase}${path}`;
 }
@@ -607,6 +640,8 @@ function setView(name) {
   }
   if (state.view === "recharge") updateRechargePanel();
   syncNavGroup();
+
+  if (name === "settings") loadShopConfigForm();
 }
 
 async function updateRechargePanel() {
@@ -757,7 +792,9 @@ function parseFilename(disposition, fallback) {
 async function exportItem(id) {
   const response = await fetch(apiUrl(`/api/temu/imports/${id}/export`), {
     method: "POST",
-    credentials: "include"
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shopConfig: getShopConfig() }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
@@ -817,7 +854,9 @@ async function reexportItem(id) {
   // 已导出箱里"重新导出": 走单条导出(不改变 exported 状态, 仍是已导出)
   const response = await fetch(apiUrl(`/api/temu/imports/${id}/export`), {
     method: "POST",
-    credentials: "include"
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ shopConfig: getShopConfig() }),
   });
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
@@ -970,7 +1009,7 @@ async function batchExport() {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids }),
+      body: JSON.stringify({ ids, shopConfig: getShopConfig() }),
     });
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
@@ -1284,6 +1323,11 @@ function bindEvents() {
   if (settingsForm) {
     settingsForm.addEventListener("submit", (event) => event.preventDefault());
   }
+  const shopConfigForm = $("#shopConfigForm");
+  if (shopConfigForm) {
+    shopConfigForm.addEventListener("submit", (event) => event.preventDefault());
+    loadShopConfigForm();
+  }
 
 
 
@@ -1353,6 +1397,12 @@ function bindEvents() {
       if (action === "retry") await retryItem(id);
       if (action === "restore") await restoreItem(id);
       if (action === "delete") await deleteItem(id);
+      if (action === "save-shop-config") { saveShopConfig(collectShopConfigFromForm()); toast("店铺配置已保存。"); }
+      if (action === "reset-shop-config") {
+        document.querySelectorAll("#shopConfigForm input[data-shop]").forEach((inp) => { inp.value = ""; });
+        saveShopConfig({});
+        toast("店铺配置已清空。");
+      }
       if (action === "copy-plugin-url") { const _u = $("#pluginUrl"); const _ok = await copyTextSafe(_u ? (_u.dataset.real || "") : ""); toast(_ok ? "已复制。" : "复制失败，请手动复制。"); }
       if (action === "copy-ref") { const _ok = await copyTextSafe(actionButton.dataset.ref || ""); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }
       if (action === "copy-api-key") { const _inp = $("#pluginApiKey"); const _v = _inp ? (_inp.dataset.real || "") : ""; const _ok = await copyTextSafe(_v); if (_ok) { const _t = actionButton.textContent; actionButton.textContent = "已复制"; setTimeout(() => { actionButton.textContent = _t; }, 1500); } }

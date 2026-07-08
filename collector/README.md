@@ -9,8 +9,16 @@ collector/temu-collector/
   manifest.json      扩展清单
   popup.html         弹窗 UI
   popup.js           采集 + 发送逻辑
-  xlsx.full.min.js   导出 Excel 用的库
 ```
+
+## 版本规则（重要！每次改插件必读）
+
+插件版本号在 `collector/temu-collector/manifest.json` 的 `version` 字段。
+
+- **每次修改插件代码，version 必须 +0.5**（1.0 → 1.5 → 2.0 → 2.5 …）
+- 压缩包文件名**自动**带版本号：`通快采集助手{version}.zip`（后端 `router.py` 下载时从 manifest.json 读取 version）
+- 改了代码但忘了改 version → 下载的 zip 名字不变，用户无法区分新旧版本
+- manifest.json 的 description 里也写了此规则，双保险
 
 ## 下载机制（重要：改了代码无需手动打包）
 

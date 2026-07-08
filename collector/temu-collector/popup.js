@@ -1,28 +1,10 @@
-// ========== 店铺配置 ==========
+// ========== API 密钥配置 ==========
 let cachedShopConfig = {};
 
 // 固定后端域名，所有人通过此域名连接（HTTPS，由 Caddy 反代到内网 6688）
 const DEFAULT_PIPELINE_URL = 'https://wangshilin888.com:8443';
-const SHOP_FIELDS = [
-  { key: 'origin', id: 'shop-origin' },
-  { key: 'shipping', id: 'shop-shipping' },
-  { key: 'site', id: 'shop-site' },
-  { key: 'shopName', id: 'shop-name' },
-  { key: 'length', id: 'shop-length' },
-  { key: 'width', id: 'shop-width' },
-  { key: 'height', id: 'shop-height' },
-  { key: 'weight', id: 'shop-weight' },
-  { key: 'declarePrice', id: 'shop-declare-price' },
-  { key: 'retailPrice', id: 'shop-retail-price' },
-  { key: 'deliveryDays', id: 'shop-delivery-days' },
-  { key: 'stock', id: 'shop-stock' },
-  { key: 'skuClass', id: 'shop-sku-class' },
-  { key: 'skuClassQty', id: 'shop-sku-class-qty' },
-  { key: 'skuClassUnit', id: 'shop-sku-class-unit' },
-  { key: 'apiKey', id: 'shop-api-key' }
-];
 
-// URL 固定，API Key 从店铺配置读取
+// URL 固定，API Key 从配置读取（发货/包装等配置已移到网站「设置」页，导出时读取）
 function buildPipelineConfig(shopCfg) {
   return {
     url: DEFAULT_PIPELINE_URL,
@@ -33,7 +15,7 @@ function buildPipelineConfig(shopCfg) {
 function updateShopStatus() {
   chrome.storage.local.get(['shopConfig'], result => {
     const cfg = result.shopConfig || {};
-    cachedShopConfig = cfg;  // 缓存供导出使用
+    cachedShopConfig = cfg;
     const statusEl = document.getElementById('shop-status');
     if (cfg.apiKey) {
       statusEl.textContent = '已连接 ✓';
@@ -50,9 +32,8 @@ function openShopPanel() {
   document.getElementById('panel-shop').style.display = 'flex';
   chrome.storage.local.get(['shopConfig'], result => {
     const cfg = result.shopConfig || {};
-    SHOP_FIELDS.forEach(f => {
-      document.getElementById(f.id).value = cfg[f.key] || '';
-    });
+    const el = document.getElementById('shop-api-key');
+    if (el) el.value = cfg.apiKey || '';
   });
 }
 
@@ -61,14 +42,10 @@ function closeShopPanel() {
 }
 
 async function saveShopConfig() {
-  const result = await chrome.storage.local.get(['shopConfig']);
-  const cfg = result.shopConfig || {};
-  let hasChange = false;
-  SHOP_FIELDS.forEach(f => {
-    const val = document.getElementById(f.id).value.trim();
-    if (val) { cfg[f.key] = val; hasChange = true; }
-  });
-  if (!hasChange && !Object.values(cfg).some(v => v)) return;
+  const cfg = {};
+  const el = document.getElementById('shop-api-key');
+  const val = el ? el.value.trim() : '';
+  if (val) cfg.apiKey = val;
   await chrome.storage.local.set({ shopConfig: cfg });
   cachedShopConfig = cfg;  // 缓存
   closeShopPanel();
@@ -296,7 +273,6 @@ document.getElementById('collectBtn').addEventListener('click', async () => {
     resultEl.innerHTML = html;
 
     document.getElementById('copyBtn').style.display = 'block';
-    document.getElementById('exportBtn').style.display = 'block';
     document.getElementById('sendPipelineBtn').style.display = 'block';
 
   } catch (error) {
@@ -688,152 +664,6 @@ document.getElementById('copyBtn').addEventListener('click', () => {
   navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
 });
 
-// ========== 导出XLSX (59列模板) ==========
-document.getElementById('exportBtn').addEventListener('click', async () => {
-  if (!collectedData) return;
-
-  const { title, priceRange, goodsId, galleryImgs, skuWithLabels, specTree, videos, categoryId, rawSummary } = collectedData;
-  const skuList = (rawSummary && rawSummary.skuList) ? rawSummary.skuList : [];
-  const now = new Date();
-  const pad2 = n => String(n).padStart(2, '0');
-  const localNow = now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate()) + ' ' + pad2(now.getHours()) + ':' + pad2(now.getMinutes()) + ':' + pad2(now.getSeconds());
-
-  const specLevelNames = (specTree || []).map(l => l.specKey);
-  const galleryStr = galleryImgs.join('\n');
-  const firstImg = galleryImgs[0] || '';
-  // ===== 产品属性: 只发原始 propName/propValue, pid/vid/templatePid 由后端 attr_db 补全 =====
-  // (attr_db.json 已挪到后端 backend/platforms/temu/, 不再打包在插件里, 保护数据库)
-  const excludeProps = ['商品编号', '产地'];
-  const enrichedProps = (collectedData.goodsProperty || [])
-    .filter(p => !excludeProps.includes((p.propName || p.key || '').trim()))
-    .map(p => ({
-      propName: p.propName || '',
-      refPid: p.refPid || '',
-      pid: p.pid || '',
-      templatePid: p.templatePid || '',
-      numberInputValue: p.numberInputValue || '',
-      valueUnit: p.valueUnit || '',
-      vid: p.vid || '',
-      propValue: p.propValue || '',
-    }));
-  const propsJson = JSON.stringify(enrichedProps);
-  const videoStr = videos.map(v => v.url).join('\n');
-
-  // 59列表头（与模板完全一致）
-  const headers = [
-    '产品标题','英文标题','产品描述','产品货号','变种名称',
-    '变种属性名称一','变种属性值一','变种属性名称二','变种属性值二','预览图',
-    '申报价格','SKU货号','长','宽','高',
-    '重量','识别码类型','识别码','站外产品链接','轮播图',
-    '产品素材图','外包装形状','外包装类型','外包装图片','建议零售价(建议零售价币种)',
-    '库存','发货时效','分类id','产品属性','SPU属性',
-    'SKC属性','SKU属性','站点价格','来源url','产地',
-    '敏感属性','备注','SKU分类','SKU分类数量','SKU分类单位',
-    '独立包装','净含量数值','净含量单位','混合套装类型','SKU分类总数量',
-    'SKU分类总数量单位','总净含量','总净含量单位','包装清单','生命周期',
-    '视频Url','运费模板（模板id）','经营站点','所属店铺','SPUID',
-    'SKCID','SKUID','创建时间','更新时间'
-  ];
-
-  // 提取纯数字价格（去掉货币符号/单位）
-  function cleanPrice(p) {
-    if (!p) return '';
-    const s = String(p).replace(/[^\d.]/g, '');
-    const num = parseFloat(s);
-    return isNaN(num) ? '' : String(num);
-  }
-  const exportPrice = cleanPrice(priceRange);
-
-  function buildRow(sku) {
-    const specObj = sku.specObj || {};
-    const specKeys = Object.keys(specObj);
-    const skuItem = (skuWithLabels || []).find(s => s.skuId === sku.skuId) || {};
-
-    const skcAttr = JSON.stringify([{ parentSpecId:0,parentSpecName:'',specId:0,specName:'', previewImgUrls:sku.skcPreviewImg||sku.thumbUrl||'', extCode:'',productSkcId:sku.skcId||'' }]);
-    const rawSpecs = sku.rawSpecs || [];
-    const skuAttr = JSON.stringify(specKeys.map(k => {
-      const rs = rawSpecs.find(s => s.specKey === k);
-      return { specId: rs ? rs.specValueId : 0, parentSpecName: k, specName: specObj[k], parentSpecId: rs ? rs.specKeyId : 0 };
-    }));
-
-    const r = new Array(59).fill('');
-    // === 以下为自动采集填充的列 ===
-    r[0]  = title;                                      // 产品标题
-    r[1]  = '';                                         // 英文标题（留空，用户自行填写）
-    r[4]  = sku.specs || '';                            // 变种名称
-    r[5]  = specLevelNames[0] || '';                    // 变种属性名称一
-    r[6]  = specKeys[0] ? specObj[specKeys[0]] : '';    // 变种属性值一
-    r[7]  = specLevelNames[1] || '';                    // 变种属性名称二
-    r[8]  = specKeys[1] ? specObj[specKeys[1]] : '';    // 变种属性值二
-    r[9]  = skuItem.url || sku.thumbUrl || '';          // 预览图
-    r[10] = cleanPrice(cachedShopConfig.declarePrice);   // 申报价格(店铺配置)
-    function fmtDecimal(v) {
-      if (!v && v !== 0) return '';
-      const n = parseFloat(v);
-      return isNaN(n) ? '' : n.toFixed(1);
-    }
-    r[12] = fmtDecimal(cachedShopConfig.length);         // 长cm（店铺配置，1位小数）
-    r[13] = fmtDecimal(cachedShopConfig.width);          // 宽cm（店铺配置，1位小数）
-    r[14] = fmtDecimal(cachedShopConfig.height);         // 高cm（店铺配置，1位小数）
-    r[15] = fmtDecimal(cachedShopConfig.weight);         // 重量g（店铺配置，1位小数）
-    r[19] = galleryStr;                                 // 轮播图
-    r[20] = firstImg;                                   // 产品素材图
-    r[24] = cleanPrice(cachedShopConfig.retailPrice);     // 建议零售价(店铺配置)
-    r[25] = cachedShopConfig.stock || '';                // 库存(店铺配置)
-    r[26] = cachedShopConfig.deliveryDays || '';          // 发货时效(店铺配置)
-    r[27] = categoryId || '';                           // 分类id
-    r[28] = propsJson;                                  // 产品属性
-    r[29] = '[]';                                       // SPU属性
-    r[30] = skcAttr;                                    // SKC属性
-    r[31] = skuAttr;                                    // SKU属性
-    r[37] = cachedShopConfig.skuClass || '';              // SKU分类(店铺配置)
-    r[38] = cachedShopConfig.skuClassQty || '';           // SKU分类数量(店铺配置)
-    r[39] = cachedShopConfig.skuClassUnit || '';          // SKU分类单位(店铺配置)
-    r[41] = '0';                                        // 净含量数值
-    r[44] = '0';                                        // SKU分类总数量
-    r[45] = '';                                         // SKU分类总数量单位（用户自填）
-    r[46] = '0';                                        // 总净含量
-    r[48] = '';                                         // 包装清单（用户自填）
-    r[34] = cachedShopConfig.origin || '';              // 产地（店铺配置）
-    r[50] = videoStr;                                   // 视频Url
-    r[51] = cachedShopConfig.shipping || '';            // 运费模板（店铺配置）
-    r[52] = cachedShopConfig.site || '';                // 经营站点（店铺配置）
-    r[53] = cachedShopConfig.shopName || '';            // 所属店铺（店铺配置）
-    r[54] = sku.spuId || goodsId || '';                 // SPUID
-    r[55] = sku.skcId || '';                            // SKCID
-    r[56] = sku.skuId || '';                            // SKUID
-    r[57] = localNow;                                   // 创建时间(北京时间)
-    r[58] = localNow;                                   // 更新时间(北京时间)
-    // === 其余列全部留空，用户自行填写 ===
-    return r;
-  }
-
-  const rows = [];
-  if (skuList.length > 0) {
-    skuList.forEach(s => rows.push(buildRow(s)));
-  } else {
-    rows.push(buildRow({ specObj:{}, specs:'', skcId:'', skuId:'', thumbUrl:'', skcPreviewImg:'', price:'', stock:0 }));
-  }
-
-  try {
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    ws['!cols'] = [
-      {wch:40},{wch:40},{wch:30},{wch:15},{wch:20},{wch:15},{wch:20},{wch:15},{wch:20},{wch:50},
-      {wch:12},{wch:18},{wch:8},{wch:8},{wch:8},{wch:8},{wch:12},{wch:15},{wch:50},{wch:50},
-      {wch:50},{wch:12},{wch:12},{wch:50},{wch:15},{wch:8},{wch:10},{wch:10},{wch:60},{wch:10},
-      {wch:50},{wch:50},{wch:12},{wch:50},{wch:20},{wch:12},{wch:30},{wch:12},{wch:10},{wch:10},
-      {wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:10},{wch:40},{wch:12},
-      {wch:50},{wch:20},{wch:20},{wch:15},{wch:20},{wch:20},{wch:20},{wch:20},{wch:20}
-    ];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'popTemu_product');
-    XLSX.writeFile(wb, `Temu_${goodsId}_${Date.now()}.xlsx`);
-  } catch(e) {
-    alert('❌ 导出失败: ' + e.message);
-    console.error(e);
-  }
-});
-
 // ========== 发送到管线 ==========
 document.getElementById('sendPipelineBtn').addEventListener('click', async () => {
   if (!collectedData) return;
@@ -860,7 +690,7 @@ document.getElementById('sendPipelineBtn').addEventListener('click', async () =>
     const shopCfg = await getShopConfig();
     const pipelineCfg = buildPipelineConfig(shopCfg);
     if (!pipelineCfg.apiKey) {
-      throw new Error('未填写 API 密钥，请在「店铺配置」里填入插件 API 密钥。');
+      throw new Error('未填写 API 密钥，请点「配置」填入插件 API 密钥。');
     }
     const rawSummary = collectedData.rawSummary || {};
     const skuList = rawSummary.skuList || [];
@@ -923,24 +753,8 @@ document.getElementById('sendPipelineBtn').addEventListener('click', async () =>
       });
     }
 
-    // 构建完整 payload
+    // 构建完整 payload（发货/包装配置已移到网站「设置」页，导出时读取，不再随采集发送）
     const payload = {
-      shopConfig: {
-        origin: shopCfg.origin || '',
-        shipping: shopCfg.shipping || '',
-        site: shopCfg.site || '',
-        shopName: shopCfg.shopName || '',
-        length: shopCfg.length || '',
-        width: shopCfg.width || '',
-        height: shopCfg.height || '',
-        weight: shopCfg.weight || '',
-        declarePrice: shopCfg.declarePrice || '',
-        retailPrice: shopCfg.retailPrice || '',
-        stock: shopCfg.stock || '',
-        skuClass: shopCfg.skuClass || '',
-        skuClassQty: shopCfg.skuClassQty || '',
-        skuClassUnit: shopCfg.skuClassUnit || '',
-      },
       goodsId: collectedData.goodsId || '',
       // 平台来源：供后台按采集箱分组展示（temu/1688/ozon）
       platform: 'temu',
@@ -966,12 +780,6 @@ document.getElementById('sendPipelineBtn').addEventListener('click', async () =>
           propName: p.propName || '',
           propValue: p.propValue || '',
         })),
-      },
-      size: {
-        length: shopCfg.length || '',
-        width: shopCfg.width || '',
-        height: shopCfg.height || '',
-        weight: shopCfg.weight || '',
       },
       createdAt: localNow,
       product: {

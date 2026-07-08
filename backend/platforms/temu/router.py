@@ -15,9 +15,10 @@
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 
@@ -27,7 +28,7 @@ from store import (
     close_pool, delete_import, get_import, get_or_create_dev_user,
     get_raw_import, get_user_by_api_key, get_user_by_id, get_user_by_uid, init_db, mark_imports_exported,
     open_pool, unmark_imports_exported,
-    insert_import, list_imports, update_status, edit_ai_image,
+    insert_import, list_imports, update_raw_import, update_status, edit_ai_image,
 )
 
 from platforms.temu.adapter import from_db_row, parse_product
@@ -231,6 +232,7 @@ async def temu_bulk_export(payload: dict[str, Any],
     if not ids:
         raise _err("no ids provided", 400)
     uid = int(user["id"])
+    shop_config = payload.get("shopConfig") or {}
 
     def _build_item(import_id: int) -> dict | tuple:
         """构建导出条目。只导出 status==done 的, 未完成的返回跳过标记。"""
@@ -241,6 +243,10 @@ async def temu_bulk_export(payload: dict[str, Any],
         raw_import = get_raw_import(uid, import_id)
         if not raw_import:
             return ("skip", import_id)
+        if shop_config:
+            raw_import = dict(raw_import)
+            raw_import["shopConfig"] = shop_config
+            update_raw_import(uid, import_id, raw_import)
         cn = row.get("cn_title", "") or raw_import.get("product", {}).get("title", "")
         en = row.get("en_title", "")
         gj = row.get("generated_json", [])
@@ -299,11 +305,17 @@ async def temu_bulk_mark_exported(payload: dict[str, Any],
 
 @router.post("/imports/{import_id}/export")
 async def temu_export(import_id: int,
+                      payload: dict[str, Any] | None = Body(default=None),
                       user: dict[str, Any] = Depends(_current_user)) -> StreamingResponse:
     uid = int(user["id"])
     raw_import = get_raw_import(uid, import_id)
     if not raw_import:
         raise _err(f"import {import_id} not found", 404)
+    shop_config = ((payload or {}).get("shopConfig")) or {}
+    if shop_config:
+        raw_import = dict(raw_import)
+        raw_import["shopConfig"] = shop_config
+        update_raw_import(uid, import_id, raw_import)
     row = get_import(uid, import_id) or {}
     cn = row.get("cn_title", "") or raw_import.get("product", {}).get("title", "")
     en = row.get("en_title", "")
@@ -493,7 +505,16 @@ async def temu_plugin_download(user: dict[str, Any] = Depends(_current_user)) ->
     if not zip_path:
         raise _err("采集插件目录不存在", 404)
 
-    filename = "temu-collector.zip"
+    # 压缩包文件名动态带版本号: 通快商品采集助手{version}.zip
+    # version 来自 manifest.json, 改插件时记得把 manifest version +0.5
+    from config import APP_ROOT as _root
+    _manifest_path = _root / "collector" / "temu-collector" / "manifest.json"
+    _ver = "1.0"
+    try:
+        _ver = json.loads(_manifest_path.read_text(encoding="utf-8")).get("version", "1.0")
+    except Exception:
+        pass
+    filename = f"通快商品采集助手{_ver}.zip"
     safe = filename.encode("ascii", "ignore").decode("ascii") or "plugin.zip"
     headers = {
         "Content-Disposition": f'attachment; filename="{safe}"; filename*=UTF-8''{filename}',

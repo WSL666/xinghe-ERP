@@ -1,13 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "Temu商品采集助手",
-  "version": "2.0",
-  "description": "一键采集Temu商品全部图片、标题、价格，基于页面原始数据确保完整性和准确性",
-  "permissions": ["activeTab", "scripting", "clipboardWrite", "storage"],
-  "host_permissions": ["*://*.temu.com/*", "https://wangshilin888.com:8443/*"],
+  "name": "通快商品采集助手",
+  "version": "1.0",
+  "description": "一键采集Temu商品全部图片、标题、价格，基于页面原始数据确保完整性和准确性。【版本规则:每次更新插件 version +0.5, 如 1.0→1.5→2.0, 压缩包名自动带版本号】",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "clipboardWrite",
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.temu.com/*",
+    "https://wangshilin888.com:8443/*"
+  ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Temu商品采集助手",
+    "default_title": "通快商品采集助手",
     "default_icon": "tongkuai_image.png"
   },
   "icons": {

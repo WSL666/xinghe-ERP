@@ -291,6 +291,7 @@
               </div>
             </label>
           </form>
+          
           <div class="plugin-download">
             <div class="plugin-download-info">
               <p class="plugin-download-title">采集插件</p>
@@ -298,6 +299,69 @@
             </div>
             <button class="primary-btn" type="button" data-action="download-plugin">下载插件</button>
           </div>
+        </section>
+
+        <section class="card settings-card shop-config-card">
+          <div class="card-head">
+            <div>
+              <p class="eyebrow">店铺发货配置</p>
+              <h3>导出配置</h3>
+            </div>
+          </div>
+          <p class="shop-config-tip">导出 Excel 时读取此处配置并写入数据库，随时可修改，下次导出自动用最新值。</p>
+          <form id="shopConfigForm" class="settings-form shop-config-form" autocomplete="off">
+            <div class="shop-config-actions">
+              <button class="ghost-btn" type="button" data-action="reset-shop-config">清空</button>
+              <button class="primary-btn" type="button" data-action="save-shop-config">保存配置</button>
+            </div>
+            <div class="shop-config-grid">
+              <label class="shop-key">申报价格(¥)<span class="shop-hint">固定申报价</span>
+                <input type="text" data-shop="declarePrice" placeholder="如 18.16">
+              </label>
+              <label class="shop-key">长(cm)<span class="shop-hint">包装长度</span>
+                <input type="number" step="any" data-shop="length" placeholder="如 25">
+              </label>
+              <label class="shop-key">宽(cm)<span class="shop-hint">包装宽度</span>
+                <input type="number" step="any" data-shop="width" placeholder="如 15">
+              </label>
+              <label class="shop-key">高(cm)<span class="shop-hint">包装高度</span>
+                <input type="number" step="any" data-shop="height" placeholder="如 5">
+              </label>
+              <label class="shop-key">重量(g)<span class="shop-hint">总重量</span>
+                <input type="number" step="any" data-shop="weight" placeholder="如 150">
+              </label>
+              <label>建议零售价($)<span class="shop-hint">固定零售价</span>
+                <input type="text" data-shop="retailPrice" placeholder="如 29.99">
+              </label>
+              <label>库存<span class="shop-hint">固定库存数量</span>
+                <input type="number" data-shop="stock" placeholder="如 1000">
+              </label>
+              <label>发货时效(天)<span class="shop-hint">固定发货时效</span>
+                <input type="number" data-shop="deliveryDays" placeholder="如 3">
+              </label>
+              <label>产地<span class="shop-hint">商品产地</span>
+                <input type="text" data-shop="origin" placeholder="如 浙江">
+              </label>
+              <label>运费模板ID<span class="shop-hint">发货模板编号</span>
+                <input type="text" data-shop="shipping" placeholder="如 HFT-xxxxxxxxxx">
+              </label>
+              <label>经营站点<span class="shop-hint">目标销售站点</span>
+                <input type="text" data-shop="site" placeholder="如 日本">
+              </label>
+              <label>所属店铺<span class="shop-hint">店铺名称</span>
+                <input type="text" data-shop="shopName" placeholder="店铺名称">
+              </label>
+              <label>SKU分类<span class="shop-hint">固定包装分类</span>
+                <input type="text" data-shop="skuClass" placeholder="如 按件包装">
+              </label>
+              <label>SKU分类数量<span class="shop-hint">每件数量</span>
+                <input type="text" data-shop="skuClassQty" placeholder="如 7">
+              </label>
+              <label>SKU分类单位<span class="shop-hint">分类单位</span>
+                <input type="text" data-shop="skuClassUnit" placeholder="如 个">
+              </label>
+            </div>
+          </form>
         </section>
       </section>
 
