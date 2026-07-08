@@ -1,7 +1,10 @@
 // content.js — 通快采集悬浮按钮 (注入到 Temu 页面)
 // 负责: 悬浮按钮 UI + 可拖动 + 点击采集 + 发送到管线 + 结果提示
 
-const PIPELINE_URL = 'https://wangshilin888.com:8443';
+// 请求全部通过 background service worker 转发(绕过 CORS)
+function bgFetch(path, opts) {
+  return chrome.runtime.sendMessage({ type: 'tk-fetch', path, method: opts.method, headers: opts.headers, body: opts.body });
+}
 
 // ========== 读取 API 密钥 (和 popup 共享 storage) ==========
 async function getApiKey() {
@@ -89,12 +92,12 @@ async function updateFabStatus() {
   dot.className = 'tk-dot gray';
   // 查余额 (1次轻量请求)
   try {
-    const res = await fetch(PIPELINE_URL + '/api/billing/balance', {
+    const res = await bgFetch('/api/billing/balance', {
+      method: 'GET',
       headers: { 'Authorization': 'Bearer ' + apiKey },
     });
     if (res.ok) {
-      const data = await res.json();
-      const avail = data.available;
+      const avail = res.data.available;
       if (avail <= 0) dot.className = 'tk-dot red';
       else if (avail <= 11) dot.className = 'tk-dot yellow';
       else dot.className = 'tk-dot green';
@@ -169,16 +172,16 @@ async function doCollectAndSend() {
 
   // 4. 发送到管线
   try {
-    const res = await fetch(PIPELINE_URL + '/api/temu/import', {
+    const res = await bgFetch('/api/temu/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-      body: JSON.stringify(payload),
+      body: payload,
     });
-    const data = await res.json();
+    const data = res.data || {};
 
     if (fab) fab.classList.remove('loading');
 
-    if (data.ok) {
+    if (res.ok && data.ok) {
       const balTip = (typeof data.available === 'number') ? `<br><span style="color:#888;font-size:11px;">💰 剩余 ${data.available} 金豆</span>` : '';
       showToast('success', `✅ <b>${(data.title || '').slice(0, 30)}</b><br>${data.sku_count} SKU · ${data.total_images} 图${balTip}`, 4000);
       updateFabStatus();
