@@ -254,7 +254,6 @@ document.getElementById('collectBtn').addEventListener('click', async () => {
 
     resultEl.innerHTML = html;
 
-    document.getElementById('copyBtn').style.display = 'block';
     document.getElementById('sendPipelineBtn').style.display = 'block';
 
   } catch (error) {
@@ -588,63 +587,6 @@ function extractFromRawData() {
     return { error: '解析异常: ' + e.message };
   }
 }
-
-// ========== 复制到剪贴板 ==========
-document.getElementById('copyBtn').addEventListener('click', () => {
-  if (!collectedData) return;
-
-  const lines = [
-    `标题: ${collectedData.title}`,
-    `价格: ${collectedData.priceRange}`,
-    `标签: ${collectedData.categoryTags.join(' > ')}`,
-    `销量: ${collectedData.salesCount}`,
-    `评分: ${collectedData.rating} ${collectedData.starText} | ${collectedData.reviewCount} 条评论`,
-    `店铺: ${collectedData.shop.name} | ${collectedData.shop.goodsCount} | ${collectedData.shop.followers}`,
-    `商品ID: ${collectedData.goodsId}`,
-  ];
-
-  // 产品详细信息
-  if (collectedData.goodsProperty && collectedData.goodsProperty.length) {
-    lines.push('');
-    lines.push('=== 产品详细信息 ===');
-    collectedData.goodsProperty.forEach(prop => {
-      lines.push(`${prop.propName || prop.key}: ${prop.propValue || (prop.values || []).join('、')}`);
-    });
-  }
-
-  lines.push('');
-  lines.push(`=== 主图轮播 (${collectedData.galleryImgs.length}张) ===`);
-  lines.push(...collectedData.galleryImgs);
-  // === 规格树 (分级展示) ===
-  if (collectedData.specTree && collectedData.specTree.length) {
-    lines.push('');
-    lines.push('=== 商品规格树 ===');
-    collectedData.specTree.forEach((level, idx) => {
-      lines.push(`  [${level.specKey}] (${level.values.length}种)`);
-      level.values.forEach(v => {
-        lines.push(`    ${v.specValue}: ${v.imgUrl}`);
-      });
-    });
-  }
-
-  lines.push('');
-  lines.push(`=== SKU规格明细 (${collectedData.skuWithLabels ? collectedData.skuWithLabels.length : collectedData.skuImgs.length}条) ===`);
-  if (collectedData.skuWithLabels && collectedData.skuWithLabels.length) {
-    collectedData.skuWithLabels.forEach(item => {
-      lines.push(`${item.label}${item.price ? ' [' + item.price + ']' : ''}: ${item.url}`);
-    });
-  } else {
-    lines.push(...collectedData.skuImgs);
-  }
-  lines.push('');
-  lines.push(`=== 商品视频 (${collectedData.videos.length}个) ===`);
-  lines.push(...collectedData.videos.map(v => `${v.url} (${v.width}x${v.height})`));
-  lines.push('');
-  lines.push(`=== 全部图片 (${collectedData.allImgs.length}张) ===`);
-  lines.push(...collectedData.allImgs);
-
-  navigator.clipboard.writeText(lines.join('\n')).catch(() => {});
-});
 
 // ========== 发送到管线 ==========
 document.getElementById('sendPipelineBtn').addEventListener('click', async () => {
