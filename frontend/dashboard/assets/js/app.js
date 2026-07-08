@@ -1731,8 +1731,10 @@ function bindEvents() {
   if (aiTitleT) aiTitleT.addEventListener("change", () => saveAISettings("title"));
   if (aiImagesT) aiImagesT.addEventListener("change", () => saveAISettings("images"));
 
-  const aiBatchBtn = $("#aiBatchBtn");
-  if (aiBatchBtn) aiBatchBtn.addEventListener("click", batchAIProcess);
+  // 并发数选择: 切换后自动触发批量AI处理
+  const aiConc = $("#aiConcurrency");
+  if (aiConc) aiConc.addEventListener("change", batchAIProcess);
+
 
   $("#batchMenu").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-batch]");
