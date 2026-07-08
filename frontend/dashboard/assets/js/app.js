@@ -633,7 +633,6 @@ function renderProducts() {
         <td>${formatTimeRange(item)}</td>
         <td>
           <div class="row-actions">
-            <button data-action="detail" data-id="${item.id}">详情</button>
             <button data-action="ai-edit" data-id="${item.id}">AI编辑</button>
             ${isError || isInsufficient ? `<button data-action="retry" data-id="${item.id}">重试</button><button data-action="restore" data-id="${item.id}">移回采集箱</button>` : isExported ? `<button data-action="reexport" data-id="${item.id}">重新导出</button><button data-action="unexport" data-id="${item.id}">移回采集箱</button>` : `<button data-action="export" data-id="${item.id}">导出</button>`}
             <button class="danger" data-action="delete" data-id="${item.id}">删除</button>
@@ -832,19 +831,39 @@ async function loadAISettings() {
   } catch {}
 }
 
-async function saveAISettings() {
+async function saveAISettings(feature) {
+  // feature: "title" | "images" | undefined(全部保存)
+  // 开启时二次确认, 关闭时直接保存
   const t = $("#aiTitleToggle");
   const i = $("#aiImagesToggle");
   if (!t || !i) return;
+  let titleOn = t.checked;
+  let imagesOn = i.checked;
+
+  if (feature === "title" && titleOn) {
+    if (!confirm("开启后，新采集的商品将自动运行 AI标题，每条扣 1 金豆。确定开启？")) {
+      t.checked = false;
+      titleOn = false;
+      return;
+    }
+  }
+  if (feature === "images" && imagesOn) {
+    if (!confirm("开启后，新采集的商品将自动运行 AI生图，每条扣 10 金豆。确定开启？")) {
+      i.checked = false;
+      imagesOn = false;
+      return;
+    }
+  }
+
   try {
     await apiFetch("/api/temu/ai-settings", {
       method: "POST",
       body: JSON.stringify({
-        ai_title_enabled: t.checked,
-        ai_images_enabled: i.checked,
+        ai_title_enabled: titleOn,
+        ai_images_enabled: imagesOn,
       }),
     });
-    toast(t.checked || i.checked ? "已开启AI自动处理。" : "已关闭AI自动处理。");
+    toast(titleOn || imagesOn ? "已开启AI自动处理。" : "已关闭AI自动处理。");
   } catch (error) {
     toast(error.message || "AI设置保存失败。", "error");
   }
@@ -1153,16 +1172,20 @@ async function batchDelete() {
   }
 }
 
-function openDetail(id) {
+function openAIEdit(id) {
+  // AI编辑抽屉(合并详情): 展示商品 + 开关式手动触发 AI标题/AI生图
   const item = state.imports.find((entry) => String(entry.id) === String(id));
   if (!item) return;
   const drawer = $("#detailDrawer");
   const title = item.cn_title || item.title || "未命名商品";
+  const aiStatus = (item.ai_status || "").trim();
+  const running = aiStatus === "queued" || aiStatus === "generating";
   const compactItem = {
     id: item.id,
     ref_code: item.ref_code,
     status: item.status,
     status_msg: item.status_msg,
+    ai_status: aiStatus,
     title: item.title,
     cn_title: item.cn_title,
     en_title: item.en_title,
@@ -1171,47 +1194,23 @@ function openDetail(id) {
     step2_done: item.step2_done,
     step3_done: item.step3_done,
     step4_done: item.step4_done,
+    ai_features: item.ai_features,
     vision_json: item.vision_json,
     step_logs: item.step_logs,
     generated_json: item.generated_json
   };
-  drawer.innerHTML = `
-    <button class="ghost-btn small" data-action="close-drawer">关闭</button>
-    <h3>${escapeHtml(title)}</h3>
-    <p class="hint">编号 ${escapeHtml(item.ref_code || item.id)} · 状态 ${escapeHtml(item.status || "pending")}</p>
-    <h4>图片</h4>
-    ${renderImageRows(item.gallery_images || [], generatedOk(item), item)}
-    <h4>步骤日志</h4>
-    ${renderStepLogs(item)}
-    <details class="debug-json">
-      <summary>调试 JSON</summary>
-      ${renderJsonBlock(compactItem)}
-    </details>
-  `;
-  drawer.classList.add("open");
-  drawer.setAttribute("aria-hidden", "false");
-}
-
-function openAIEdit(id) {
-  // AI编辑抽屉: 展示商品 + 手动触发 AI标题/AI生图(无全链路)
-  const item = state.imports.find((entry) => String(entry.id) === String(id));
-  if (!item) return;
-  const drawer = $("#detailDrawer");
-  const title = item.cn_title || item.title || "未命名商品";
-  const aiStatus = (item.ai_status || "").trim();
-  const running = aiStatus === "queued" || aiStatus === "generating";
-  const aiBtnHtml = running
-    ? `<p class="hint">AI 正在处理中…</p>`
-    : `<div class="ai-edit-actions">
-         <button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="title">🏷️ AI标题</button>
-         <button class="ai-action-btn" data-action="ai-run" data-id="${item.id}" data-features="images">🖼️ AI生图</button>
+  const aiOpsHtml = running
+    ? `<p class="hint">⏳ AI 正在处理中…</p>`
+    : `<div class="ai-edit-toggles">
+         <label class="ai-switch-wrap">🏷️ AI标题 (1金豆)<input type="checkbox" id="drawerTitleSwitch" class="switch-input" data-action="drawer-ai" data-id="${item.id}" data-features="title"><span class="switch-track"></span></label>
+         <label class="ai-switch-wrap">🖼️ AI生图 (10金豆)<input type="checkbox" id="drawerImagesSwitch" class="switch-input" data-action="drawer-ai" data-id="${item.id}" data-features="images"><span class="switch-track"></span></label>
        </div>`;
   drawer.innerHTML = `
     <button class="ghost-btn small" data-action="close-drawer">关闭</button>
     <h3>${escapeHtml(title)}</h3>
     <p class="hint">编号 ${escapeHtml(item.ref_code || item.id)} · AI状态 ${escapeHtml(aiStatus || "未运行")}</p>
     <h4>AI 操作</h4>
-    ${aiBtnHtml}
+    ${aiOpsHtml}
     <h4>AI 标题</h4>
     <div class="ai-title-result">
       <div class="title-line title-orig"><span>源</span>${escapeHtml(item.title || "无")}</div>
@@ -1223,6 +1222,10 @@ function openAIEdit(id) {
     <details class="debug-json">
       <summary>步骤日志</summary>
       ${renderStepLogs(item)}
+    </details>
+    <details class="debug-json">
+      <summary>调试 JSON</summary>
+      ${renderJsonBlock(compactItem)}
     </details>
   `;
   drawer.classList.add("open");
@@ -1498,7 +1501,6 @@ function bindEvents() {
       if (action === "ai-promote") await aiImageAction("promote", actionButton.dataset.importId, { source_url: actionButton.dataset.src });
       if (action === "ai-delete") await aiImageAction("delete", actionButton.dataset.importId, { image_type: actionButton.dataset.imageType });
       if (action === "ai-restore") await aiImageAction("restore", actionButton.dataset.importId, { image_type: actionButton.dataset.imageType });
-      if (action === "detail") openDetail(id);
       if (action === "ai-edit") openAIEdit(id);
       if (action === "spec") openSpec(id);
       if (action === "close-drawer") closeDrawer();
@@ -1651,8 +1653,29 @@ function bindEvents() {
   // AI 开关: 切换即保存
   const aiTitleT = $("#aiTitleToggle");
   const aiImagesT = $("#aiImagesToggle");
-  if (aiTitleT) aiTitleT.addEventListener("change", saveAISettings);
-  if (aiImagesT) aiImagesT.addEventListener("change", saveAISettings);
+  if (aiTitleT) aiTitleT.addEventListener("change", () => saveAISettings("title"));
+  if (aiImagesT) aiImagesT.addEventListener("change", () => saveAISettings("images"));
+
+  // AI编辑抽屉内的开关: change事件触发 → 二次确认 → 跑AI → 复位
+  document.body.addEventListener("change", async (event) => {
+    const sw = event.target.closest('[data-action="drawer-ai"]');
+    if (!sw) return;
+    if (!sw.checked) return; // 只处理开启
+    const features = (sw.dataset.features || "").split(",").filter(Boolean);
+    const cost = features.includes("images") ? "10" : "1";
+    const label = features.includes("images") ? "AI生图" : "AI标题";
+    if (!confirm(`确认运行 ${label}？本次将扣 ${cost} 金豆。`)) {
+      sw.checked = false;
+      return;
+    }
+    try {
+      await runAIPipeline(sw.dataset.id, features);
+      closeDrawer();
+    } catch (error) {
+      toast(error.message || "AI任务启动失败。", "error");
+    }
+    sw.checked = false; // 一次性操作, 复位
+  });
 
   $("#batchMenu").addEventListener("click", (event) => {
     const btn = event.target.closest("[data-batch]");
