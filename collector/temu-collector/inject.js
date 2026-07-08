@@ -132,7 +132,7 @@
     }
 
     // 4.4 SKU 列表 (store.sku)
-    let skus = store.sku || [];
+    const skus = store.sku || [];
     if (!Array.isArray(skus)) skus = [];
     skus.forEach(sku => {
       if (sku.thumbUrl) addImg(sku.thumbUrl, 'sku');
@@ -174,7 +174,14 @@
         skuLabelSet.add(imgUrl + '|' + label);
         const specObj = {};
         specs.forEach(sp => { specObj[sp.specKey] = sp.specValue; });
-        skuWithLabels.push({ url: imgUrl, label, specs: specObj, skuId: sku.skuId || '', price });
+        skuWithLabels.push({
+          url: imgUrl,
+          label: label,
+          specs: specObj,
+          specList: specs.map(sp => ({ key: sp.specKey, value: sp.specValue })),
+          skuId: sku.skuId || '',
+          price: price
+        });
       }
     });
 
