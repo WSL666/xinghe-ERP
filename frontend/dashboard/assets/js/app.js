@@ -1038,6 +1038,50 @@ async function batchRetry() {
   toast(`已重新加入队列 ${ok} 个。`);
 }
 
+async function batchAIProcess() {
+  // 批量AI处理: 对选中的已采集商品, 按并发数分批触发AI
+  const ids = selectedIds();
+  if (!ids.length) { toast("请先勾选商品。", "warn"); return; }
+  toggleBatchMenu(false);
+
+  // 让用户选并发数(1-5) + 功能(标题/生图)
+  const concurrency = parseInt(prompt("并发数 (1-5):", "1"), 10);
+  if (!concurrency || concurrency < 1 || concurrency > 5) {
+    toast("并发数需在 1-5 之间。", "error");
+    return;
+  }
+  const featChoice = prompt("AI功能 (输入: title=标题, images=生图, all=全链路):", "title");
+  const features = featChoice === "all" ? ["title", "images"]
+    : featChoice === "images" ? ["images"]
+    : ["title"];
+
+  toast(`正在批量处理 ${ids.length} 条, 并发 ${concurrency}...`);
+
+  // 分批: 按并发数分组, 每组同时发, 组间等
+  let ok = 0, fail = 0;
+  for (let i = 0; i < ids.length; i += concurrency) {
+    const batch = ids.slice(i, i + concurrency);
+    const results = await Promise.allSettled(
+      batch.map((id) =>
+        apiFetch(`/api/temu/imports/${id}/ai-run`, {
+          method: "POST",
+          body: JSON.stringify({ features }),
+        })
+      )
+    );
+    for (let j = 0; j < results.length; j++) {
+      if (results[j].status === "fulfilled") {
+        ok++;
+        state.selectedIds && state.selectedIds.delete(Number(batch[j]));
+      } else {
+        fail++;
+      }
+    }
+  }
+  await refreshData({ silent: true });
+  toast(`批量AI处理完成: 成功 ${ok}, 失败 ${fail}。`);
+}
+
 async function markBulkExported(ids) {
   // 文件保存确认后才归档。后端只标记 status=done 的, 返回实际归档数。
   try {
@@ -1076,7 +1120,11 @@ function updateBatchState() {
   const isError = state.view === ERROR_VIEW;
   const isInsufficient = state.view === INSUFFICIENT_VIEW;
   const showRetry = isError || isInsufficient;
+  const isProducts = PANEL_ALIAS[state.view] === "products" && !isError && !isInsufficient && !EXPORTED_VIEWS[state.view];
   $("#batchDeleteBtn").disabled = !has;
+  const aiBtn = $("#batchAIBtn");
+  if (aiBtn) aiBtn.hidden = !isProducts;
+  if (aiBtn && !aiBtn.hidden) aiBtn.disabled = !has;
   if (showRetry) {
     $("#batchExportBtn").hidden = true;
     const retry = $("#batchRetryBtn");
@@ -1699,6 +1747,8 @@ function bindEvents() {
       updateBatchState();
     } else if (action === "export") {
       batchExport();
+    } else if (action === "ai-process") {
+      batchAIProcess();
     } else if (action === "retry") {
       batchRetry();
     } else if (action === "delete") {
