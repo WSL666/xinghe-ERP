@@ -34,7 +34,7 @@ import tempfile
 
 import pipeline_queue
 from orchestrator import worker_handler
-from store import close_pool, init_db, list_resumable_imports, open_pool
+from store import close_pool, init_db, list_resumable_imports, cleanup_stale_imports, db_conn, open_pool
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -119,6 +119,21 @@ def main() -> None:
     # 再把 DB 中未完成的任务干净地重新入队。避免每重启一次就多堆一批副本。
     try:
         pipeline_queue.reset_queue_and_active()
+
+        # 清理脏数据: 老架构 status 残留 → 统一成 collected
+        stale = cleanup_stale_imports()
+        if stale:
+            logger.info("crash recovery: normalized %d stale status rows → 'collected'", stale)
+
+        # 清理卡在 generating 的残留: worker 刚启动说明上次的 generating 没跑完
+        with db_conn() as conn:
+            cur = conn.execute(
+                "UPDATE imports SET ai_status = 'error', ai_status_msg = '处理中断，请重试', "
+                "updated_at = now() WHERE ai_status = 'generating'"
+            )
+            if cur.rowcount:
+                logger.info("crash recovery: reset %d stuck 'generating' → 'error'", cur.rowcount)
+
         resumed = 0
         for row in list_resumable_imports():
             pipeline_queue.enqueue_pipeline(int(row["user_id"]), int(row["id"]))

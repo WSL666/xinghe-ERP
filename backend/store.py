@@ -894,6 +894,23 @@ def delete_import(user_id: int, import_id: int) -> bool:
     return cur.rowcount > 0
 
 
+def cleanup_stale_imports() -> int:
+    """启动时清理脏数据: 把 ai_status 为空但 status 是旧值的标记为纯采集。
+
+    老数据(status=queued/generating 但 ai_status='')在旧架构下是运行中的,
+    新架构 ai_status 才是 AI 状态 → 这些应该归为纯采集(ai_status='')。
+    前端 statusInfo 对 ai_status='' 显示「已采集」, 数据上是对的。
+    这里只清理 status 字段, 统一改成 'collected'。
+    返回清理的行数。
+    """
+    with db_conn() as conn:
+        cur = conn.execute(
+            "UPDATE imports SET status = 'collected', updated_at = now() "
+            "WHERE ai_status = '' AND status IN ('queued', 'generating', 'done', 'error')"
+        )
+        return cur.rowcount
+
+
 def list_resumable_imports() -> list[dict[str, Any]]:
     """Imports left in a non-terminal status after a crash/restart.
 
