@@ -97,6 +97,41 @@ def hold_amount_for(image_count: int) -> int:
     return HOLD_VISION + HOLD_PER_IMAGE * max(0, image_count)
 
 
+def get_hold_amount_for_import(user_id: int, import_id: int) -> int:
+    """查某条 import 当初预扣了多少(用于删除时退还冻结)。
+
+    返回 frozen 额度: 优先从 raw_json 重算 hold_amount_for(image_count),
+    找不到则退回 frozen_beans 全额(安全兜底)。
+    返回 0 表示无需退还。
+    """
+    with db_conn() as conn:
+        # 是否有 hold 记录
+        held = conn.execute(
+            "SELECT 1 FROM bean_transactions WHERE import_id = %s AND reason = 'hold' LIMIT 1",
+            (import_id,),
+        ).fetchone()
+        if not held:
+            return 0
+        # 是否已结算/已释放(amount <> 0 的记录)
+        done = conn.execute(
+            "SELECT 1 FROM bean_transactions WHERE import_id = %s AND amount <> 0 LIMIT 1",
+            (import_id,),
+        ).fetchone()
+        if done:
+            return 0
+    # 未结算: 重新算 hold 额度
+    try:
+        from store import get_raw_import
+        raw = get_raw_import(user_id, import_id)
+        if raw:
+            product_data = raw.get("product", {}) or {}
+            total_images = len((product_data.get("galleryImages", []) or [])[:10])
+            return hold_amount_for(total_images)
+    except Exception:
+        pass
+    return 0
+
+
 # ─────────────────────────────────────────────────────────
 # 预扣 / 结算 / 释放  (均幂等, 绑 import_id)
 # ─────────────────────────────────────────────────────────

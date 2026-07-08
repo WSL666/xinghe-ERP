@@ -804,6 +804,30 @@ def record_step(
         label=label,
     )
 def delete_import(user_id: int, import_id: int) -> bool:
+    """删除一条导入: 退还未结算冻结金豆 + 清 Redis 队列 + 删 DB。
+
+    顺序: 先退金豆(查 raw_json 算 hold) → 再清队列 → 最后删 DB。
+    确保 worker 即使刚取出也能发现记录已删 → 静默跳过。
+    """
+    # 1. 退还未结算的冻结金豆
+    try:
+        from billing.store import get_hold_amount_for_import, release_beans
+        hold_amt = get_hold_amount_for_import(user_id, import_id)
+        if hold_amt > 0:
+            release_beans(user_id, import_id, hold_amt)
+    except Exception as e:
+        logging.getLogger("store").warning(
+            "delete_import: release beans failed user=%s import=%s: %s",
+            user_id, import_id, e)
+
+    # 2. 从 Redis 队列移除(排队中的不会被取出执行)
+    try:
+        import pipeline_queue
+        pipeline_queue.remove_from_queue(user_id, import_id)
+    except Exception:
+        pass
+
+    # 3. 删除 DB 记录
     with db_conn() as conn:
         cur = conn.execute(
             "DELETE FROM imports WHERE user_id = %s AND id = %s",

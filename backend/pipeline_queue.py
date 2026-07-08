@@ -198,6 +198,27 @@ def _mark_dequeued(user_id: int, import_id: int) -> None:
         pass
 
 
+def remove_from_queue(user_id: int, import_id: int) -> bool:
+    """从 Redis 队列移除一条任务(删除时调用)。
+
+    1. 从 pipeline:enqueued 去重集合移除
+    2. 从 pipeline:queue 列表移除(可能有0~N份副本, 全删)
+    返回是否成功(Redis 不可用时返回 False, 不阻断删除)。
+    """
+    try:
+        c = _client()
+        member = f"{user_id}:{import_id}"
+        c.srem("pipeline:enqueued", member)
+        payload = json.dumps({"user_id": user_id, "import_id": import_id})
+        # lrem 删除所有匹配的副本(count=0)
+        c.lrem(QUEUE_KEY, 0, payload)
+        logger.info("removed from queue user=%s import=%s", user_id, import_id)
+        return True
+    except Exception as exc:
+        logger.warning("remove_from_queue failed user=%s import=%s: %s", user_id, import_id, exc)
+        return False
+
+
 def reset_queue_and_active() -> None:
     """清空队列 + 并发计数 + 去重 SET。
 

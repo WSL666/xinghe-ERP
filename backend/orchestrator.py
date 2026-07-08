@@ -54,7 +54,8 @@ def worker_handler(user_id: int, import_id: int) -> None:
     env = _load_env()
     row = get_import(user_id, import_id)
     if not row:
-        update_status(user_id, import_id, "error", "import not found")
+        # 记录已被删除 → 静默跳过(不标记 error, 行已不存在)
+        log(f"skip: import={import_id} not found (deleted), abort")
         return
 
     status = row.get("status")

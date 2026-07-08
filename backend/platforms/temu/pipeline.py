@@ -269,7 +269,7 @@ def execute(
     """
     raw_import = store.get_raw_import(user_id, import_id)
     if not raw_import:
-        store.update_status(user_id, import_id, "error", "raw import not found")
+        # 记录已被删除 → 静默跳过(行已不存在, 无法标记 error)
         return
 
     product = parse_product(raw_import)
