@@ -2029,19 +2029,6 @@ tbody tr:nth-child(even) td {
   cursor: pointer;
   outline: none;
 }
-.ai-batch-btn {
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-  background: linear-gradient(135deg, #fb7701, #ff5722);
-  border: none;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: opacity 0.15s;
-  margin-left: 6px;
-}
-.ai-batch-btn:hover { opacity: 0.88; }
 /* iOS 风格滑动开关 */
 .switch-input { display: none; }
 .switch-track {
@@ -2092,33 +2079,6 @@ tbody tr:nth-child(even) td {
 .ai-badge.idle { background: #f0f0f0; color: #999; }
 
 /* 手动 AI 按钮 */
-.ai-action-btn {
-  border: 1px solid #ddd;
-  background: #fff;
-  color: #666;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  border-radius: 6px;
-  cursor: pointer;
-  margin-right: 3px;
-  transition: all 0.15s;
-}
-.ai-action-btn:hover { border-color: var(--clay); color: var(--clay); }
-.ai-action-btn.primary { background: linear-gradient(135deg, #fb7701, #ff5722); color: #fff; border: none; }
-
-.ai-edit-actions,
-.ai-edit-toggles {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-.ai-edit-actions .ai-action-btn {
-  padding: 8px 16px;
-  font-size: 13px;
-}
 .ai-title-result { margin-bottom: 16px; }
 
 .ai-edit-section { display: flex; flex-direction: column; gap: 16px; margin-bottom: 16px; }
