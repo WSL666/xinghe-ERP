@@ -85,32 +85,19 @@
     <div class="sub">一键提取商品全部图片 · 基于页面原始数据</div>
   </div>
 
-  <!-- 店铺配置区 -->
-  <div id="configSection">
-    <div class="section-title" id="configToggle">
-      <span class="arrow">▼</span> 🏪 店铺配置
+  <!-- API 密钥配置 -->
+  <div id="configSection" style="margin-bottom:8px;background:#f8f9fa;border-radius:8px;border:1px solid #e8e8e8;padding:8px 10px;">
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:600;color:#666;">🔑 API 密钥</span>
+      <span id="shop-status" style="font-size:10px;color:#aaa;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未配置</span>
     </div>
-    <div class="config-body">
-      <!-- 店铺配置 -->
-      <div class="shop-config-row" data-shop="1" style="padding:4px 10px;display:flex;align-items:center;gap:6px;border-top:1px solid #eee;font-size:12px;">
-        <span class="model-icon">🏪</span>
-        <span class="model-name">店铺配置</span>
-        <span class="model-status" id="shop-status" style="font-size:10px;color:#aaa;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">未配置</span>
-        <button class="cfg-btn shop-cfg-btn" style="width:auto;padding:2px 8px;font-size:11px;margin:0;background:#fff;color:#007bff;border:1px solid #007bff;border-radius:4px;white-space:nowrap;flex-shrink:0;">配置</button>
-      </div>
-      <!-- 金豆余额状态(插件开弹窗查1次, 采集不重复查) -->
-      <div style="padding:3px 10px;border-top:1px solid #eee;font-size:11px;">
-        <span id="beans-status" style="color:#999;"></span>
-      </div>
-      <div class="config-panel shop-panel" id="panel-shop" style="display:none;padding:4px 10px 8px 10px;border-top:1px dashed #ddd;flex-direction:column;gap:2px;width:100%;">
-        <div style="font-size:10px;color:#e74c3c;font-weight:600;margin-top:2px;">API密钥（必填）：从网站「设置 → 插件 API 密钥」复制</div>
-        <input type="password" placeholder="插件 API 密钥（必填）" id="shop-api-key" style="width:100%;padding:5px 8px;border:1px solid #e74c3c;border-radius:4px;font-size:11px;outline:none;">
-        <div class="save-row" style="display:flex;gap:4px;">
-          <button class="cancel-btn shop-cancel-btn" style="flex:1;padding:5px;font-size:11px;margin:0;border-radius:4px;background:#fff;color:#666;border:1px solid #ddd;">取消</button>
-          <button class="save-btn shop-save-btn" style="flex:1;padding:5px;font-size:11px;margin:0;border-radius:4px;background:#007bff;color:#fff;">保存</button>
-        </div>
-      </div>
-
+    <div style="display:flex;gap:4px;">
+      <input type="password" placeholder="粘贴插件 API 密钥" id="shop-api-key" style="flex:1;padding:6px 8px;border:1px solid #ddd;border-radius:6px;font-size:11px;outline:none;">
+      <button id="shop-save-btn" style="width:auto;padding:6px 14px;font-size:11px;margin:0;background:#007bff;color:#fff;border:none;border-radius:6px;white-space:nowrap;">保存</button>
+    </div>
+    <!-- 金豆余额状态(插件开弹窗查1次, 采集不重复查) -->
+    <div style="margin-top:6px;font-size:11px;">
+      <span id="beans-status" style="color:#999;"></span>
     </div>
   </div>
 

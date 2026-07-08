@@ -19,26 +19,12 @@ function updateShopStatus() {
     const statusEl = document.getElementById('shop-status');
     if (cfg.apiKey) {
       statusEl.textContent = '已连接 ✓';
-      statusEl.className = 'model-status configured';
+      statusEl.style.color = '#27ae60';
     } else {
-      statusEl.textContent = '未配置密钥';
-      statusEl.className = 'model-status';
+      statusEl.textContent = '未配置';
+      statusEl.style.color = '#aaa';
     }
   });
-}
-
-function openShopPanel() {
-  document.querySelectorAll('.config-panel.show').forEach(p => p.classList.remove('show'));
-  document.getElementById('panel-shop').style.display = 'flex';
-  chrome.storage.local.get(['shopConfig'], result => {
-    const cfg = result.shopConfig || {};
-    const el = document.getElementById('shop-api-key');
-    if (el) el.value = cfg.apiKey || '';
-  });
-}
-
-function closeShopPanel() {
-  document.getElementById('panel-shop').style.display = 'none';
 }
 
 async function saveShopConfig() {
@@ -47,10 +33,9 @@ async function saveShopConfig() {
   const val = el ? el.value.trim() : '';
   if (val) cfg.apiKey = val;
   await chrome.storage.local.set({ shopConfig: cfg });
-  cachedShopConfig = cfg;  // 缓存
-  closeShopPanel();
+  cachedShopConfig = cfg;
   updateShopStatus();
-  refreshBeansStatus();  // 密钥可能变了, 刷新余额
+  refreshBeansStatus();
 }
 
 // 获取店铺配置（供导出使用）
@@ -108,26 +93,23 @@ async function refreshBeansStatus() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 初始化: 填入已保存的密钥
+  chrome.storage.local.get(['shopConfig'], result => {
+    const cfg = result.shopConfig || {};
+    const el = document.getElementById('shop-api-key');
+    if (el) el.value = cfg.apiKey || '';
+  });
   updateShopStatus();
   refreshBeansStatus();
 
-  // 配置区折叠/展开
-  document.getElementById('configToggle').addEventListener('click', () => {
-    document.getElementById('configSection').classList.toggle('collapsed');
-  });
+  // 保存按钮
+  const saveBtn = document.getElementById('shop-save-btn');
+  if (saveBtn) saveBtn.addEventListener('click', () => saveShopConfig());
 
-  // 店铺配置按钮
-  document.querySelector('.shop-cfg-btn').addEventListener('click', e => {
-    e.stopPropagation();
-    openShopPanel();
-  });
-  document.querySelector('.shop-save-btn').addEventListener('click', e => {
-    e.stopPropagation();
-    saveShopConfig();
-  });
-  document.querySelector('.shop-cancel-btn').addEventListener('click', e => {
-    e.stopPropagation();
-    closeShopPanel();
+  // 回车也能保存
+  const keyInput = document.getElementById('shop-api-key');
+  if (keyInput) keyInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') saveShopConfig();
   });
 });
 
