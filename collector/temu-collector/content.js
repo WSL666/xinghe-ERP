@@ -120,20 +120,19 @@ async function updateFabStatus() {
   dot.className = 'tk-dot gray';
   if (statusText) statusText.textContent = '连接中...';
   try {
-    const res = await bgFetch('/api/billing/balance', {
+    const res = await bgFetch('/api/temu/health', {
       method: 'GET',
-      headers: { 'Authorization': 'Bearer ' + apiKey },
     });
     if (res.ok) {
       dot.className = 'tk-dot green';
       if (statusText) statusText.textContent = '已连接';
-    } else if (res.status === 401) {
+    } else {
       dot.className = 'tk-dot red';
-      if (statusText) statusText.textContent = '密钥无效';
+      if (statusText) statusText.textContent = '连接失败';
     }
   } catch {
     dot.className = 'tk-dot gray';
-    if (statusText) statusText.textContent = '查询失败';
+    if (statusText) statusText.textContent = '连接失败';
   }
 }
 
@@ -187,10 +186,6 @@ async function doCollectAndSend() {
     const data = res.data || {};
     if (res.ok && data.ok) {
       setBtnState('采集成功', 'success');
-      updateFabStatus();
-    } else if (res.status === 402) {
-      setBtnState('金豆不足', 'fail');
-      updateFabStatus();
     } else {
       setBtnState('发送失败', 'fail');
     }

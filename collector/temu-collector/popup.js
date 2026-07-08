@@ -50,7 +50,6 @@ async function saveShopConfig() {
   cachedShopConfig = cfg;
   toggleKeyPanel(false);  // 保存后自动收起
   updateShopStatus();
-  refreshBeansStatus();
 }
 
 // 获取店铺配置（供导出使用）
@@ -59,57 +58,8 @@ async function getShopConfig() {
   return result.shopConfig || {};
 }
 
-// 绑定事件
-// 可用金豆(开弹窗时查1次, 采集不重复查)
-let cachedAvailableBeans = null;
-
-async function refreshBeansStatus() {
-  // 开弹窗/保存配置后调1次: 查可用余额, 更新提示 + 控制"发送到管线"按钮
-  const cfg = await getShopConfig();
-  const pipelineCfg = buildPipelineConfig(cfg);
-  const el = document.getElementById('beans-status');
-  const sendBtn = document.getElementById('sendPipelineBtn');
-  if (!el) return;
-  if (!pipelineCfg.apiKey) {
-    el.textContent = '';
-    cachedAvailableBeans = null;
-    return;
-  }
-  el.style.color = '#999';
-  el.textContent = '⏳ 查询余额...';
-  try {
-    const res = await fetch(pipelineCfg.url + '/api/billing/balance', {
-      headers: { 'Authorization': `Bearer ${pipelineCfg.apiKey}` },
-    });
-    if (res.status === 401) {
-      el.textContent = '⚠️ API密钥无效';
-      el.style.color = '#e74c3c';
-      cachedAvailableBeans = null;
-      return;
-    }
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || '查询失败');
-    const avail = data.available;
-    cachedAvailableBeans = avail;
-    // 每条链接悲观冻结 1 + 输入图数(通常~11), 保守按11估"约可采几条"
-    const est = avail > 0 ? Math.floor((avail + 10) / 11) : 0;
-    if (avail <= 0) {
-      el.textContent = `🔴 金豆不足(可用${avail})，请充值`;
-      el.style.color = '#e74c3c';
-    } else {
-      el.textContent = `💰 可用${avail}金豆（约可采${est}条）`;
-      el.style.color = avail <= 11 ? '#e67e22' : '#27ae60';
-    }
-  } catch (e) {
-    el.textContent = '余额查询失败';
-    el.style.color = '#aaa';
-    cachedAvailableBeans = null;
-  }
-}
-
 document.addEventListener('DOMContentLoaded', () => {
   updateShopStatus();
-  refreshBeansStatus();
 
   // 配置按钮: 展开密钥输入面板
   const cfgBtn = document.getElementById('cfg-btn');
@@ -425,30 +375,12 @@ document.getElementById('sendPipelineBtn').addEventListener('click', async () =>
     const data = await res.json();
 
     if (data.ok) {
-      // 成功: 顺带更新缓存 + 显示剩余可用(后端已在响应里返回)
-      if (typeof data.available === 'number') cachedAvailableBeans = data.available;
-      const balTip = (typeof data.available === 'number')
-        ? `<br><span style="color:#888;font-size:10px;">💰 剩余可用 ${data.available} 金豆</span>`
-        : '';
       resultEl.innerHTML += `
         <div style="margin-top:8px;padding:8px;background:#f0f9ff;border:1px solid #91d5ff;border-radius:6px;font-size:12px;">
           ✅ <b>已发送到管线！</b> #${data.import_id} — ${data.title || ''}
           <br>${data.sku_count} 个SKU，${data.total_images} 张轮播图
           <br><span style="color:#888;font-size:10px;">管线页面已自动接收，可继续采集下一条</span>
-          ${balTip}
         </div>`;
-      // 余额可能变了, 刷新顶部状态(1次轻量查询)
-      refreshBeansStatus();
-    } else if (res.status === 402) {
-      // 金豆不足: 醒目红色提示, 不显示成"未知错误"
-      resultEl.innerHTML += `
-        <div style="margin-top:8px;padding:10px;background:#fff0f0;border:2px solid #e74c3c;border-radius:6px;font-size:12px;">
-          🔴 <b>金豆不足，无法发送</b>
-          <br>${data.error || '余额不足'}
-          <br><span style="color:#e74c3c;">请充值后继续，已采集的会自动续跑</span>
-        </div>`;
-      // 余额变了(或首次查), 刷新状态
-      refreshBeansStatus();
     } else {
       throw new Error(data.error || '未知错误');
     }
