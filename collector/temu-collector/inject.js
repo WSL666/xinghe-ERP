@@ -95,29 +95,34 @@
       galleryImgList.push(normalized);
     }
 
-    (goods.imageList || goods.galleryImages || goods.oldImageUrls || goods.images || []).forEach(url => addImg(url));
-    (store.imageList || store.galleryImages || store.images || []).forEach(url => addImg(url));
-
-    const detail = store.detail || {};
-    (detail.imageList || detail.images || detail.galleryImages || []).forEach(url => addImg(url));
-
-    let skus = goods.skuList || goods.skus || detail.skuList || detail.skus || store.skuList || store.skus || [];
-    if (!Array.isArray(skus)) skus = [];
-    skus.forEach(sku => {
-      if (sku.thumbUrl) { const u = normalizeUrl(sku.thumbUrl); if (u && !allImgSet.has(u)) { allImgSet.add(u); skuImgList.push(u); } }
-      if (sku.specShowImageUrl) { const u = normalizeUrl(sku.specShowImageUrl); if (u && !allImgSet.has(u)) { allImgSet.add(u); skuImgList.push(u); } }
+    // ===== 主图轮播 (gallery) — 与 extract.js 完全一致 =====
+    const gallery = goods.gallery || [];
+    gallery.forEach(item => {
+      if (item.url) addImg(item.url);
     });
 
-    const videos = goods.videos || detail.videos || store.videos || [];
-    (Array.isArray(videos) ? videos : []).forEach(v => {
-      const vUrl = normalizeUrl(v.videoUrl || v.url || v.playUrl || '');
+    // 高清主图
+    if (goods.hdThumbUrl) addImg(goods.hdThumbUrl);
+
+    // ===== SKU 列表 (store.sku) — 与 extract.js 完全一致 =====
+    let skus = store.sku || goods.skuList || goods.skus || [];
+    if (!Array.isArray(skus)) skus = [];
+    skus.forEach(sku => {
+      if (sku.thumbUrl) addImg(sku.thumbUrl);
+      if (sku.specShowImageUrl) addImg(sku.specShowImageUrl);
+    });
+
+    // ===== 商品主视频 — 与 extract.js 一致 =====
+    if (goods.video) {
+      const v = goods.video;
+      const vUrl = normalizeUrl(v.url || v.videoUrl || v.playUrl || '');
       if (vUrl) videoList.push({
         url: vUrl,
-        poster: normalizeUrl(v.coverUrl || v.posterUrl || v.poster || v.imageUrl || ''),
+        poster: normalizeUrl(v.coverUrl || v.posterUrl || v.poster || ''),
         width: v.width || 0,
         height: v.height || 0,
       });
-    });
+    }
 
     // 规格树
     const specLevelKeySet = new Set();
