@@ -821,49 +821,36 @@ async function runAIPipeline(id, features) {
 }
 
 async function loadAISettings() {
-  // 进入采集箱时读取 AI 开关状态
   try {
     const data = await apiFetch("/api/temu/ai-settings");
-    const t = $("#aiTitleToggle");
-    const i = $("#aiImagesToggle");
-    if (t) t.checked = !!data.ai_title_enabled;
-    if (i) i.checked = !!data.ai_images_enabled;
+    const master = $("#aiMasterToggle");
+    if (master) master.checked = !!(data.ai_title_enabled || data.ai_images_enabled);
   } catch {}
 }
 
-async function saveAISettings(feature) {
-  // feature: "title" | "images" | undefined(全部保存)
-  // 开启时二次确认, 关闭时直接保存
-  const t = $("#aiTitleToggle");
-  const i = $("#aiImagesToggle");
-  if (!t || !i) return;
-  let titleOn = t.checked;
-  let imagesOn = i.checked;
-
-  if (feature === "title" && titleOn) {
-    if (!confirm("开启后，新采集的商品将自动运行 AI标题，每条扣 1 金豆。确定开启？")) {
-      t.checked = false;
-      titleOn = false;
+async function saveAISettings() {
+  const master = $("#aiMasterToggle");
+  if (!master) return;
+  const on = master.checked;
+  if (on) {
+    if (!confirm("开启后，新采集的商品将自动运行 AI全链路（标题+生图），每条扣 11 金豆。确定开启？")) {
+      master.checked = false;
       return;
     }
   }
-  if (feature === "images" && imagesOn) {
-    if (!confirm("开启后，新采集的商品将自动运行 AI生图，每条扣 10 金豆。确定开启？")) {
-      i.checked = false;
-      imagesOn = false;
-      return;
-    }
-  }
-
   try {
     await apiFetch("/api/temu/ai-settings", {
       method: "POST",
       body: JSON.stringify({
-        ai_title_enabled: titleOn,
-        ai_images_enabled: imagesOn,
+        ai_title_enabled: on,
+        ai_images_enabled: on,
       }),
     });
-    toast(titleOn || imagesOn ? "已开启AI自动处理。" : "已关闭AI自动处理。");
+    toast(on ? "已开启AI自动处理。" : "已关闭AI自动处理。");
+    if (on) {
+      // 开启后自动批量处理已采集的老数据
+      setTimeout(() => batchAIProcess(), 500);
+    }
   } catch (error) {
     toast(error.message || "AI设置保存失败。", "error");
   }
@@ -1039,17 +1026,9 @@ async function batchRetry() {
 }
 
 async function batchAIProcess() {
-  // 全自动批量AI处理: 从下拉框读并发数, 扫描所有"已采集未跑AI"的链接, 分批跑完
+  // 全自动批量AI处理: 从下拉框读并发数, 扫描所有"已采集未跑AI"的链接, 全链路分批跑完
   const concurrency = parseInt($("#aiConcurrency")?.value || "3", 10);
-  const titleOn = $("#aiTitleToggle")?.checked;
-  const imagesOn = $("#aiImagesToggle")?.checked;
-  const features = [];
-  if (titleOn) features.push("title");
-  if (imagesOn) features.push("images");
-  if (!features.length) {
-    toast("请先开启至少一个 AI 开关（标题/生图）。", "error");
-    return;
-  }
+  const features = ["title", "images"];
   toast("正在扫描已采集商品...");
   let pending = [];
   try {
@@ -1726,14 +1705,14 @@ function bindEvents() {
   });
 
   // AI 开关: 切换即保存
-  const aiTitleT = $("#aiTitleToggle");
-  const aiImagesT = $("#aiImagesToggle");
-  if (aiTitleT) aiTitleT.addEventListener("change", () => saveAISettings("title"));
-  if (aiImagesT) aiImagesT.addEventListener("change", () => saveAISettings("images"));
+  const aiMaster = $("#aiMasterToggle");
+  if (aiMaster) aiMaster.addEventListener("change", saveAISettings);
 
-  // 并发数选择: 切换后自动触发批量AI处理
+  // 并发数选择: 切换后, 如果开关开着就自动触发批量AI处理
   const aiConc = $("#aiConcurrency");
-  if (aiConc) aiConc.addEventListener("change", batchAIProcess);
+  if (aiConc) aiConc.addEventListener("change", () => {
+    if ($("#aiMasterToggle")?.checked) batchAIProcess();
+  });
 
 
   $("#batchMenu").addEventListener("click", (event) => {
