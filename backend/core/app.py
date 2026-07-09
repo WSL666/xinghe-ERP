@@ -24,7 +24,7 @@ from store import (
     list_enterprise_members, regenerate_invite_code,
     remove_enterprise_member, update_member_role,
 )
-import sms
+import services.sms as sms
 
 router = APIRouter(tags=["common"])
 

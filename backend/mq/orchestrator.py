@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import pipeline_queue
+import mq.redis_queue as pipeline_queue
 from config import ENV_PATH, get_settings
 from core.base import load_env, log
 from store import get_import, update_status

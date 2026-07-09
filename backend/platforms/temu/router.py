@@ -22,7 +22,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 
 
-import pipeline_queue
+import mq.redis_queue as pipeline_queue
 from security import create_session_token, load_session_token
 from store import (
     close_pool, delete_import, get_import, get_or_create_dev_user,
@@ -35,7 +35,7 @@ from store import (
 from platforms.temu.adapter import from_db_row, parse_product
 from platforms.temu.export import to_xlsx as temu_export_xlsx, to_xlsx_batch as temu_export_xlsx_batch
 
-from orchestrator import run_auto_pipeline
+from mq.orchestrator import run_auto_pipeline
 
 router = APIRouter(prefix="/api/temu", tags=["temu"])
 

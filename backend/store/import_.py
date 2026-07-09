@@ -432,7 +432,7 @@ def delete_import(user_id: int, import_id: int) -> bool:
             user_id, import_id, e)
 
     try:
-        import pipeline_queue
+        import mq.redis_queue as pipeline_queue
         pipeline_queue.remove_from_queue(user_id, import_id)
     except Exception:
         pass

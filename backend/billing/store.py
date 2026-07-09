@@ -405,7 +405,7 @@ def restore_insufficient(user_id: int) -> list[int]:
     返回成功恢复(重新 hold + 入队)的 import_id 列表。
     仍不够 hold 的继续留在 insufficient。
     """
-    import pipeline_queue
+    import mq.redis_queue as pipeline_queue
     from store import db_conn as _dbc, update_status
     import json as _json
     resumed: list[int] = []

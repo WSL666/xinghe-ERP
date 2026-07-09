@@ -66,8 +66,8 @@ def _startup() -> None:
     # 测试/兼容旧用法:设 PIPELINE_EMBED_WORKERS=1 时仍在 web 内起 worker。
     if os.getenv("PIPELINE_EMBED_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
         # 仅测试/兼容旧用法时在 web 内嵌 worker(惰性 import,避免非 embed 模式下的多余依赖)
-        import pipeline_queue as _pq
-        from orchestrator import worker_handler as _wh
+        import mq.redis_queue as _pq
+        from mq.orchestrator import worker_handler as _wh
         _pq.start_workers(_wh)
         logging.getLogger("startup").info("embedded workers enabled (PIPELINE_EMBED_WORKERS=1)")
 
@@ -80,7 +80,7 @@ async def lifespan(_app: FastAPI):
     finally:
         close_pool()
         if os.getenv("PIPELINE_EMBED_WORKERS", "").strip().lower() in {"1", "true", "yes", "on"}:
-            import pipeline_queue as _pq
+            import mq.redis_queue as _pq
             _pq.stop_workers()
 
 

@@ -32,8 +32,8 @@ import sys
 import time
 import tempfile
 
-import pipeline_queue
-from orchestrator import worker_handler
+import mq.redis_queue as pipeline_queue
+from mq.orchestrator import worker_handler
 from store import close_pool, init_db, list_resumable_imports, cleanup_stale_imports, db_conn, open_pool
 
 if hasattr(sys.stdout, "reconfigure"):
