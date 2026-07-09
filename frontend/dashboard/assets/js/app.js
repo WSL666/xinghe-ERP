@@ -1026,7 +1026,7 @@ async function batchRetry() {
 
 async function batchAIProcess() {
   // 全自动批量AI处理: 从下拉框读并发数, 扫描所有"已采集未跑AI"的链接, 全链路分批跑完
-  const concurrency = parseInt($("#aiConcurrency")?.value || "3", 10);
+  const concurrency = parseInt($("#aiConcurrency")?.value || "1", 10);
   const features = ["title", "images"];
   toast("正在扫描已采集商品...");
   let pending = [];
