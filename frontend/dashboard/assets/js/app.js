@@ -1213,9 +1213,8 @@ function openAIEdit(id) {
   const compactItem = {
     id: item.id,
     ref_code: item.ref_code,
-    status: item.status,
-    status_msg: item.status_msg,
     status: aiStatus,
+    status_msg: item.status_msg,
     title: item.title,
     cn_title: item.cn_title,
     en_title: item.en_title,

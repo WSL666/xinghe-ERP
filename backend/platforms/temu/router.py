@@ -131,7 +131,6 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
         if held:
             set_ai_features(uid, import_id, features)
             run_auto_pipeline(uid, import_id)
-            update_status(uid, import_id, "queued", "AI排队中")
         else:
             update_status(uid, import_id, "insufficient", f"金豆不足(需{hold_amount})")
 
@@ -382,7 +381,6 @@ async def temu_restore(import_id: int,
     uid = int(user["id"])
     if not get_import(uid, import_id):
         raise _err(f"import {import_id} not found", 404)
-    update_status(uid, import_id, "collected", "restored from error box")
     update_status(uid, import_id, "collected", "restored")
     return _ok(import_id=import_id, status="collected")
 
@@ -458,7 +456,6 @@ async def temu_ai_run(import_id: int,
         raise _err(f"金豆不足，需冻结{hold_amount}金豆，当前可用{avail}", 402)
 
     set_ai_features(uid, import_id, features)
-    update_status(uid, import_id, "queued", "AI排队中")
     run_auto_pipeline(uid, import_id)
     try:
         avail_after = get_available_beans(uid)

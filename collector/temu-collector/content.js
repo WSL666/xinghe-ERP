@@ -53,13 +53,11 @@ function createFab() {
   // 拖动逻辑: 拖动顶部 header 区域
   const header = fab.querySelector('.tk-header');
   let isDragging = false;
-  let hasMoved = false;
   let startX = 0, startY = 0;
   let offsetX = 0, offsetY = 0;
 
   header.addEventListener('mousedown', (e) => {
     isDragging = true;
-    hasMoved = false;
     startX = e.clientX;
     startY = e.clientY;
     const rect = fab.getBoundingClientRect();
@@ -73,7 +71,6 @@ function createFab() {
     if (!isDragging) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) hasMoved = true;
     fab.style.right = 'auto';
     fab.style.bottom = 'auto';
     const fw = fab.offsetWidth;

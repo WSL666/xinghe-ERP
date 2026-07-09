@@ -299,22 +299,14 @@ def execute(
     # 但如果只跑 title(翻译)且没有图片, 跳过下载直接跑翻译。
     image_context: dict[str, Any] = {}
     has_images = bool(product.carousel_images)
-    store.update_status(user_id, import_id, "generating", "downloading source images")
-    try:
-        store.update_status(user_id, import_id, "generating", "AI处理中")
-    except Exception:
-        pass
+    store.update_status(user_id, import_id, "generating", "AI处理中")
     if has_images:
         try:
             if _timed_out():
                 raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s before download")
             image_context = collect_product_images([to_pipeline_input(product)])
         except Exception as exc:
-            store.update_status(user_id, import_id, "error", f"image download failed: {exc}")
-            try:
-                store.update_status(user_id, import_id, "error", f"图片下载失败: {exc}")
-            except Exception:
-                pass
+            store.update_status(user_id, import_id, "error", f"图片下载失败: {exc}")
             store.update_finished_at(user_id, import_id)
             return
 
@@ -477,10 +469,6 @@ def execute(
     if run_images and not s3.get("ok"):
         msg = "vision failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
-    try:
-        store.update_status(user_id, import_id, "done" if done else "error", msg)
-    except Exception:
-        pass
     store.update_finished_at(user_id, import_id)
     # ── 结算计费(hold→settle/release, 一条链接一条流水) ──
     # hold 在入队时已冻结悲观上限; 这里按实际成功数结算, 多冻的退还。
