@@ -135,7 +135,7 @@ def _download_images_parallel(all_urls: list[str]) -> tuple[list, list, list, li
 
 
 def collect_product_images(products: list[dict]) -> dict[str, Any]:
-    """Download and encode product carousel images for Vision and I2I reuse."""
+    """Download and encode product carousel images for Multimodal and I2I reuse."""
     all_urls = []
     for product in products:
         for img_url in product.get("carousel_images", [])[:10]:

@@ -1,6 +1,6 @@
 """One-stage prompt for Temu-style ecommerce image generation.
 
-The vision model receives this prompt plus all product reference images.
+The multimodal model receives this prompt plus all product reference images.
 It must return only:
   - selected_reference_image_indexes
   - image_1, image_2, ... direct English prompts for the image model
@@ -160,7 +160,7 @@ Universal restrictions that every prompt must include or clearly imply:
 
 
 def build_prompt(product_text: str = "") -> str:
-    """Build the one-stage vision prompt."""
+    """Build the one-stage multimodal prompt."""
     text = product_text.strip() if product_text else "No product text provided."
     return PROMPT_TEMPLATE.replace("{product_text}", text)
 

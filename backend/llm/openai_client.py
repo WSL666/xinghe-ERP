@@ -47,7 +47,7 @@ class OpenAITextClient:
         return content.strip()
 
 
-class OpenAIVisionClient:
+class OpenAIMultimodalClient:
     """多模态多模态 (OpenAI 兼容: GPT-4o/GPT-5.5 等)。"""
 
     def __init__(self, env: dict[str, str], api_key: str | None = None):
@@ -62,7 +62,7 @@ class OpenAIVisionClient:
 
     def analyze(self, prompt: str, image_b64_list: list[str], **kwargs: Any) -> dict[str, Any]:
         import traceback as _tb
-        log(f"Vision: base={self._sdk_base}, model={self._model}, "
+        log(f"Multimodal: base={self._sdk_base}, model={self._model}, "
             f"key=...{self._api_key[-8:]}, images={len(image_b64_list)}")
 
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
@@ -97,17 +97,17 @@ class OpenAIVisionClient:
                 if delta_content:
                     content_parts.append(delta_content)
         except Exception as exc:
-            log(f"Vision API call exception: {exc}")
+            log(f"Multimodal API call exception: {exc}")
             log(f"Traceback: {_tb.format_exc()}")
             code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
-            raise ApiKeyError(f"Vision API call failed: {exc}", code) from exc
+            raise ApiKeyError(f"Multimodal API call failed: {exc}", code) from exc
 
         raw = "".join(content_parts).strip()
         if not raw:
-            raise RuntimeError("Empty vision stream response")
+            raise RuntimeError("Empty multimodal stream response")
         if usage:
-            log(f"Vision usage: {usage}")
-        log(f"Vision raw response (first 500 chars): {raw[:500]}")
+            log(f"Multimodal usage: {usage}")
+        log(f"Multimodal raw response (first 500 chars): {raw[:500]}")
         return parse_json_response(raw)
 
 

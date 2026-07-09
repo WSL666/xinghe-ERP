@@ -412,7 +412,7 @@ function renderImageStrip(list, tail = "") {
 
 function stepLogs(item) {
   const logs = item.step_logs || {};
-  return ["step2_translate", "step3_vision", "step4_generation"]
+  return ["step2_translate", "step3_multimodal", "step4_generation"]
     .map((key) => logs[key] ? { key, ...logs[key] } : null)
     .filter(Boolean);
 }
@@ -441,8 +441,8 @@ function renderStepLogs(item) {
   `).join("")}</div>`;
 }
 
-function hasVision(item) {
-  return Boolean(item.vision_json && item.vision_json.selected_indexes && !item.vision_json.error);
+function hasMultimodal(item) {
+  return Boolean(item.multimodal_json && item.multimodal_json.selected_indexes && !item.multimodal_json.error);
 }
 
 function filteredImports() {
@@ -1224,7 +1224,7 @@ function openAIEdit(id) {
     step3_done: item.step3_done,
     step4_done: item.step4_done,
     ai_features: item.ai_features,
-    vision_json: item.vision_json,
+    multimodal_json: item.multimodal_json,
     step_logs: item.step_logs,
     generated_json: item.generated_json
   };

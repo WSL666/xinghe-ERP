@@ -25,7 +25,7 @@ from core.oss import (
     upload_source_videos_to_oss,
 )
 from tools.translate import translate_titles
-from tools.vision_analyze import analyze_product_with_retry
+from tools.multimodal_analyze import analyze_product_with_retry
 from tools.image_gen import generate_one_image, build_edit_image
 from llm.base import ApiKeyError
 from api_key_pool import get_pool
@@ -34,7 +34,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from schemas.product import Product, to_pipeline_input
 from platforms.temu.adapter import parse_product
 from platforms.temu.prompts import translate as translate_prompt
-from platforms.temu.prompts import vision as vision_prompt
+from platforms.temu.prompts import multimodal as multimodal_prompt
 
 
 # ─────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ def _step2_translate(env: dict[str, str], product: Product) -> tuple[str, str]:
     return cn, en
 
 
-def _step3_vision(env: dict[str, str], product: Product,
+def _step3_multimodal(env: dict[str, str], product: Product,
                     image_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """多模态解析:下载图片 → 调多模态模型 → 选参考图 + 生成提示词。
 
@@ -64,7 +64,7 @@ def _step3_vision(env: dict[str, str], product: Product,
     if image_context is None:
         image_context = collect_product_images([to_pipeline_input(product)])
     product_text = product.chinese_title
-    prompt = vision_prompt.build_prompt(product_text)
+    prompt = multimodal_prompt.build_prompt(product_text)
 
     log(f"调多模态模型: {len(image_context['valid_b64'])} 张图")
     analysis = analyze_product_with_retry(
@@ -74,7 +74,7 @@ def _step3_vision(env: dict[str, str], product: Product,
         image_context["valid_images"],
     )
     result = {
-        "step": "step3_vision",
+        "step": "step3_multimodal",
         "payload": analysis["payload"],
         "selected_indexes": analysis["selected_indexes"],
         "prompt_items": [{"number": n, "prompt": p} for n, p in analysis["prompt_items"]],
@@ -93,7 +93,7 @@ def _step3_vision(env: dict[str, str], product: Product,
     return result
 
 
-def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any],
+def _step4_generate(env: dict[str, str], product: Product, multimodal: dict[str, Any],
                       user_id: int = 0, import_id: int = 0, store: Any = None) -> list[dict[str, Any]]:
     """图生图:按多模态给的 prompt 调 VibeLearning,并行生成。"""
     import traceback as _tb
@@ -105,11 +105,11 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
     image_model = env.get("IMAGE_MODEL", "gpt-image-2")
     size = env.get("IMAGE_SIZE", "1024x1024")
 
-    selected_indexes = [int(i) for i in vision.get("selected_indexes", [])]
-    raw_prompt_items = vision.get("prompt_items", [])
+    selected_indexes = [int(i) for i in multimodal.get("selected_indexes", [])]
+    raw_prompt_items = multimodal.get("prompt_items", [])
 
     # 复用 step3 下载的图,无则重新下载
-    cache = vision.get("_image_cache")
+    cache = multimodal.get("_image_cache")
     if cache and cache.get("image_bytes_list") is not None:
         valid_indices = cache["valid_indices"]
         image_bytes_list = cache["image_bytes_list"]
@@ -303,7 +303,7 @@ def execute(
     # 关键优化: 翻译和多模态不再被 step1(上传OSS ~100秒)挡着,三路同时启动。
     # 翻译本身只需 ~1 秒,改完前端能比旧版提前约 100 秒看到翻译结果。
     # 多模态复用上面已下载的字节(不重复下载),省 ~5-6 秒。
-    store.update_status(user_id, import_id, "generating", "translation, vision and source upload running")
+    store.update_status(user_id, import_id, "generating", "translation, multimodal and source upload running")
     results: dict[str, Any] = {}
 
     def _w1():
@@ -348,11 +348,11 @@ def execute(
 
     def _w3():
         import datetime as _dt
-        step_key, label = "step3_vision", "多模态解析"
+        step_key, label = "step3_multimodal", "多模态解析"
         started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not image_context or not image_context.get("valid_b64"):
-            results["step3"] = {"ok": False, "error": "no images for vision"}
-            store.update_step3_vision(user_id, import_id, {"error": "no images"}, done=False)
+            results["step3"] = {"ok": False, "error": "no images for multimodal"}
+            store.update_step3_multimodal(user_id, import_id, {"error": "no images"}, done=False)
             store.record_step(user_id, import_id, step_key, "failed", error="no images", started_at=started, label=label)
             return
         try:
@@ -360,19 +360,19 @@ def execute(
                               input_data={"carousel_count": len(product.carousel_images)},
                               started_at=started, finished_at=started, label=label)
             # 复用已下载的 image_context,不再重复下载
-            vision = _step3_vision(env, product, image_context=image_context)
-            results["step3"] = {"ok": True, "vision": vision}
-            vision_for_db = {k: v for k, v in vision.items() if k != "_image_cache"}
-            store.update_step3_vision(user_id, import_id, vision_for_db, done=True)
+            multimodal = _step3_multimodal(env, product, image_context=image_context)
+            results["step3"] = {"ok": True, "multimodal": multimodal}
+            multimodal_for_db = {k: v for k, v in multimodal.items() if k != "_image_cache"}
+            store.update_step3_multimodal(user_id, import_id, multimodal_for_db, done=True)
             # 多模态解析不在此单独扣费: 与图片生成合并, 在任务收尾统一扣一条流水(幂等)。
             store.record_step(user_id, import_id, step_key, "success",
-                              output_data={"selected_indexes": vision.get("selected_indexes", []),
-                                           "prompt_count": len(vision.get("prompt_items", [])),
-                                           "attempts": len(vision.get("attempts", []))},
+                              output_data={"selected_indexes": multimodal.get("selected_indexes", []),
+                                           "prompt_count": len(multimodal.get("prompt_items", [])),
+                                           "attempts": len(multimodal.get("attempts", []))},
                               started_at=started, label=label)
         except Exception as exc:
             results["step3"] = {"ok": False, "error": str(exc)}
-            store.update_step3_vision(user_id, import_id, {"error": str(exc)}, done=False)
+            store.update_step3_multimodal(user_id, import_id, {"error": str(exc)}, done=False)
             store.record_step(user_id, import_id, step_key, "failed",
                               error=str(exc), started_at=started, label=label)
 
@@ -412,20 +412,20 @@ def execute(
     generated: list[dict[str, Any]] = []
     step4_ok = False
     if run_images and s3.get("ok"):
-        vision = s3["vision"]
-        store.update_status(user_id, import_id, "generating", "vision done, image generation running")
+        multimodal = s3["multimodal"]
+        store.update_status(user_id, import_id, "generating", "multimodal done, image generation running")
         # 清空旧图片(防止崩溃重跑时残留重复 append)
         store.update_step4(user_id, import_id, [], done=False)
         import datetime as _dt
         step_key, label = "step4_generation", "图片生成"
         started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         store.record_step(user_id, import_id, step_key, "running",
-                          input_data={"image_count": len(vision.get("prompt_items", []))},
+                          input_data={"image_count": len(multimodal.get("prompt_items", []))},
                           started_at=started, finished_at=started, label=label)
         try:
             if _timed_out():
                 raise TimeoutError(f"pipeline exceeded {PIPELINE_TOTAL_TIMEOUT:.0f}s deadline before image generation")
-            generated = _step4_generate(env, product, vision, user_id=user_id, import_id=import_id, store=store)
+            generated = _step4_generate(env, product, multimodal, user_id=user_id, import_id=import_id, store=store)
             step4_ok = True
             store.update_step4(user_id, import_id, generated, done=True)
             ok_count = sum(1 for g in generated if g.get("generated_image"))
@@ -456,7 +456,7 @@ def execute(
     if run_title and not s2.get("ok"):
         msg = "translation failed; " + msg
     if run_images and not s3.get("ok"):
-        msg = "vision failed; " + msg
+        msg = "multimodal failed; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
     store.update_finished_at(user_id, import_id)
     # ── 结算计费(hold→settle/release, 一条链接一条流水) ──
@@ -465,16 +465,16 @@ def execute(
     try:
         from billing.store import settle_beans, release_beans, hold_amount_for
         hold_amount = hold_amount_for(ai_features)
-        vision_ok = bool(s3.get("ok")) if run_images else False
+        multimodal_ok = bool(s3.get("ok")) if run_images else False
         success_images = sum(1 for g in generated if g.get("generated_image")) if run_images else 0
         title_settle_ok = bool(s2.get("ok")) if run_title else False
-        if title_settle_ok or vision_ok or success_images > 0:
+        if title_settle_ok or multimodal_ok or success_images > 0:
             # 有任一项成功 → 结算(按实际成本扣, 多冻的退还)
             result = settle_beans(user_id, import_id, hold_amount,
-                                  vision_ok, success_images, title_ok=title_settle_ok)
+                                  multimodal_ok, success_images, title_ok=title_settle_ok)
             if result:
                 log(f"结算: user={user_id} import={import_id} "
-                    f"多模态={'1' if vision_ok else '0'} 图{success_images} "
+                    f"多模态={'1' if multimodal_ok else '0'} 图{success_images} "
                     f"扣{result.get('charged', 0)} 余额={result['balance_after']}"
                     f"{' [dedup]' if result.get('dedup') else ''}")
             else:

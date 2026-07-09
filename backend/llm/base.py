@@ -13,7 +13,7 @@ class LLMClient(ABC):
         ...
 
 
-class VisionClient(ABC):
+class MultimodalClient(ABC):
     """多模态多模态模型 (图片解析/OCR/视频理解)。"""
 
     @abstractmethod

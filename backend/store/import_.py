@@ -52,7 +52,7 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
     item = dict(row)
     raw = _json(item.get("raw_json"), {})
     item["generated_json"] = _json(item.get("generated_json"), [])
-    item["vision_json"] = _json(item.get("vision_json"), {})
+    item["multimodal_json"] = _json(item.get("multimodal_json"), {})
     item["step_logs"] = _json(item.get("step_logs"), {})
     item["spec_json"] = _json(item.get("spec_json"), {})
     item["video_json"] = _json(item.get("video_json"), [])
@@ -176,15 +176,15 @@ def update_step2(user_id: int, import_id: int, cn_title: str, en_title: str) -> 
         )
 
 
-def update_step3_vision(user_id: int, import_id: int, vision_data: dict[str, Any], done: bool = True) -> None:
+def update_step3_multimodal(user_id: int, import_id: int, multimodal_data: dict[str, Any], done: bool = True) -> None:
     with db_conn() as conn:
         conn.execute(
             """
             UPDATE imports
-            SET step3_done = %s, vision_json = %s, updated_at = now()
+            SET step3_done = %s, multimodal_json = %s, updated_at = now()
             WHERE user_id = %s AND id = %s
             """,
-            (done, json.dumps(vision_data, ensure_ascii=False), user_id, import_id),
+            (done, json.dumps(multimodal_data, ensure_ascii=False), user_id, import_id),
         )
 
 

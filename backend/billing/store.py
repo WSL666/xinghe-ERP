@@ -16,7 +16,7 @@
 计费规则(成功才计):
   - 多模态解析成功: 1 金豆
   - 每张成功图:   各 1 金豆
-  - 悲观预扣上限: HOLD_VISION + HOLD_PER_IMAGE * 输入图数
+  - 悲观预扣上限: HOLD_MULTIMODAL + HOLD_PER_IMAGE * 输入图数
   - 允许欠到 BEANS_FLOOR(-10), 即可用余额 > -10 才能预扣。
 """
 from __future__ import annotations
@@ -29,7 +29,7 @@ from store import db_conn
 BEANS_FLOOR = -10              # 可用余额下限(允许欠到此)
 COST_TITLE = 1                 # AI标题(翻译)固定扣 1
 HOLD_IMAGES = 10               # AI生图固定 hold 10(多了退少了扣)
-HOLD_VISION = 1                # 多模态解析的冻结额度(成功必扣 1)
+HOLD_MULTIMODAL = 1                # 多模态解析的冻结额度(成功必扣 1)
 HOLD_PER_IMAGE = 1             # 每张成功图的扣费(结算时按实际成功数)
 
 
@@ -261,7 +261,7 @@ def hold_beans(user_id: int, amount: int, import_id: int) -> dict[str, Any] | No
 
 
 def settle_beans(user_id: int, import_id: int, hold_amount: int,
-                 vision_ok: bool, success_images: int,
+                 multimodal_ok: bool, success_images: int,
                  title_ok: bool = False) -> dict[str, Any] | None:
     """任务跑完结算: 解冻预扣额度, 按实际成功数真扣, 多冻的退还。
 
@@ -277,8 +277,8 @@ def settle_beans(user_id: int, import_id: int, hold_amount: int,
     actual = 0
     if title_ok:
         actual += COST_TITLE
-    if vision_ok:
-        actual += HOLD_VISION
+    if multimodal_ok:
+        actual += HOLD_MULTIMODAL
     actual += HOLD_PER_IMAGE * max(0, success_images)
     with db_conn() as conn:
         # 幂等: 已有消费结算 → 跳过

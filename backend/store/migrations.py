@@ -44,7 +44,7 @@ def init_db() -> None:
                 cn_title TEXT NOT NULL DEFAULT '',
                 en_title TEXT NOT NULL DEFAULT '',
                 generated_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-                vision_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+                multimodal_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                 step_logs JSONB NOT NULL DEFAULT '{}'::jsonb,
                 spec_json JSONB NOT NULL DEFAULT '{}'::jsonb,
                 video_json JSONB NOT NULL DEFAULT '[]'::jsonb,
