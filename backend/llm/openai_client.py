@@ -2,7 +2,7 @@
 
 一个文件涵盖三种能力:
   - chat():       文本 LLM (翻译/对话)
-  - analyze():    多模态视觉 (图片解析)
+  - analyze():    多模态多模态 (图片解析)
   - generate():   图片生成 (images.edit)
 
 不同模型只是 model/base_url/api_key 不同, 协议一致, 共用此文件。
@@ -48,7 +48,7 @@ class OpenAITextClient:
 
 
 class OpenAIVisionClient:
-    """多模态视觉 (OpenAI 兼容: GPT-4o/GPT-5.5 等)。"""
+    """多模态多模态 (OpenAI 兼容: GPT-4o/GPT-5.5 等)。"""
 
     def __init__(self, env: dict[str, str], api_key: str | None = None):
         self._env = env

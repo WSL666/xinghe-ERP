@@ -31,7 +31,7 @@ logger = logging.getLogger("api_key_pool")
 
 # provider → 业务名(面板显示用)。新增模型在这里加一行即可。
 PROVIDERS = {
-    "chat": "视觉解析模型",
+    "chat": "多模态模型",
     "vibe": "图片生成模型",
 }
 

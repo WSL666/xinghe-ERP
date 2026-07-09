@@ -1,7 +1,7 @@
 """金豆计费层: 预扣(hold) + 结算(settle) 双阶段计费。
 
 设计思想(企业级预授权模型, 同酒店预授权 / 云厂商按量计费):
-  - 金豆是后付费(跑完才知道扣几颗, 视觉可能失败、图可能只成功一半),
+  - 金豆是后付费(跑完才知道扣几颗, 多模态可能失败、图可能只成功一半),
     而"可用余额"必须即时反映未结算任务的占用, 否则并发跑时多个任务
     互不知道彼此消耗, 必然超扣。
   - 解决: 入队时先"冻结"(hold)这笔的悲观上限; 跑完按实际成功数"结算"(settle),
@@ -14,7 +14,7 @@
   可用余额 = beans - frozen_beans
 
 计费规则(成功才计):
-  - 视觉解析成功: 1 金豆
+  - 多模态解析成功: 1 金豆
   - 每张成功图:   各 1 金豆
   - 悲观预扣上限: HOLD_VISION + HOLD_PER_IMAGE * 输入图数
   - 允许欠到 BEANS_FLOOR(-10), 即可用余额 > -10 才能预扣。
@@ -29,7 +29,7 @@ from store import db_conn
 BEANS_FLOOR = -10              # 可用余额下限(允许欠到此)
 COST_TITLE = 1                 # AI标题(翻译)固定扣 1
 HOLD_IMAGES = 10               # AI生图固定 hold 10(多了退少了扣)
-HOLD_VISION = 1                # 视觉解析的冻结额度(成功必扣 1)
+HOLD_VISION = 1                # 多模态解析的冻结额度(成功必扣 1)
 HOLD_PER_IMAGE = 1             # 每张成功图的扣费(结算时按实际成功数)
 
 
@@ -37,7 +37,7 @@ def hold_amount_for(features: list[str]) -> int:
     """按选中的 AI 模块算固定 hold 额度。
 
     - ["title"]            → 1 (标题)
-    - ["images"]           → 10 (生图: 视觉1 + 生图上限, 固定10)
+    - ["images"]           → 10 (生图: 多模态1 + 生图上限, 固定10)
     - ["title","images"]   → 11 (全链路)
     """
     amt = 0
@@ -266,7 +266,7 @@ def settle_beans(user_id: int, import_id: int, hold_amount: int,
     """任务跑完结算: 解冻预扣额度, 按实际成功数真扣, 多冻的退还。
 
     hold_amount = 当初 hold 的额度(hold_amount_for 算出的上限)。
-    actual(实际成本) = 视觉成功1 + 成功图数(各项失败不计)。
+    actual(实际成本) = 多模态成功1 + 成功图数(各项失败不计)。
     操作(FOR UPDATE 锁行, 原子):
       frozen_beans -= hold_amount   (解冻全部预扣)
       beans        -= actual        (真扣)
@@ -327,7 +327,7 @@ def settle_beans(user_id: int, import_id: int, hold_amount: int,
 def release_beans(user_id: int, import_id: int, hold_amount: int) -> dict[str, Any] | None:
     """全失败时释放冻结(不真扣, 把预扣额度全额退还可用余额)。
 
-    用于: 视觉失败且无任何成功图 → 不扣, 退还全部冻结。
+    用于: 多模态失败且无任何成功图 → 不扣, 退还全部冻结。
     幂等: 同 import 已结算/已释放则跳过。
     """
     with db_conn() as conn:

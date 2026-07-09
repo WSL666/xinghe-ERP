@@ -2,7 +2,7 @@
 
 对外暴露的公共 API:
   get_pool(provider) -> ApiKeyPool
-  PROVIDERS           -> {"chat": "视觉解析", "vibe": "图片生成"}
+  PROVIDERS           -> {"chat": "多模态模型", "vibe": "图片生成"}
   all_snapshots()     -> 两池状态快照
   bootstrap_from_env  -> 启动时空池自动从 .env 恢复兜底 key
 

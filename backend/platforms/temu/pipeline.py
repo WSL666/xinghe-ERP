@@ -3,11 +3,11 @@
 这是 Temu 的"业务大脑",决定:
   先做什么 → 后做什么 → 调哪些 core 工具 → 用哪个 prompt
 
-流程: 统一下载源图 → (step1上传OSS ‖ step2翻译 ‖ step3视觉)三路并行 → 生图 → 收尾
-      (step1/2/3 三路并行,翻译结果不再被OSS上传阻塞,生图依赖视觉结果)
+流程: 统一下载源图 → (step1上传OSS ‖ step2翻译 ‖ step3多模态)三路并行 → 生图 → 收尾
+      (step1/2/3 三路并行,翻译结果不再被OSS上传阻塞,生图依赖多模态结果)
 
 新增 1688 时,写自己的 pipeline.py:
-  - 可复用 core 的工具(翻译/视觉/生图)
+  - 可复用 core 的工具(翻译/多模态/生图)
   - 步骤顺序、是否需要某步、用哪套 prompt 都可不同
 """
 from __future__ import annotations
@@ -55,18 +55,18 @@ def _step2_translate(env: dict[str, str], product: Product) -> tuple[str, str]:
 
 def _step3_vision(env: dict[str, str], product: Product,
                     image_context: dict[str, Any] | None = None) -> dict[str, Any]:
-    """视觉解析:下载图片 → 调视觉模型 → 选参考图 + 生成提示词。
+    """多模态解析:下载图片 → 调多模态模型 → 选参考图 + 生成提示词。
 
     image_context 不为空时直接复用(已下载的字节),省掉重复下载。
     """
     log("=" * 50)
-    log(">>> TEMU STEP3: 视觉解析")
+    log(">>> TEMU STEP3: 多模态解析")
     if image_context is None:
         image_context = collect_product_images([to_pipeline_input(product)])
     product_text = product.chinese_title
     prompt = vision_prompt.build_prompt(product_text)
 
-    log(f"调视觉模型: {len(image_context['valid_b64'])} 张图")
+    log(f"调多模态模型: {len(image_context['valid_b64'])} 张图")
     analysis = analyze_product_with_retry(
         env,
         prompt,
@@ -89,13 +89,13 @@ def _step3_vision(env: dict[str, str], product: Product,
         },
     }
     # 汇总用的小字段(不带字节)
-    log(f"视觉完成: selected={analysis['selected_indexes']}, prompts={len(analysis['prompt_items'])}")
+    log(f"多模态完成: selected={analysis['selected_indexes']}, prompts={len(analysis['prompt_items'])}")
     return result
 
 
 def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any],
                       user_id: int = 0, import_id: int = 0, store: Any = None) -> list[dict[str, Any]]:
-    """图生图:按视觉给的 prompt 调 VibeLearning,并行生成。"""
+    """图生图:按多模态给的 prompt 调 VibeLearning,并行生成。"""
     import traceback as _tb
 
     log("=" * 50)
@@ -127,9 +127,9 @@ def _step4_generate(env: dict[str, str], product: Product, vision: dict[str, Any
             prompt_items.append((int(item[0]), str(item[1])))
 
     if not selected_indexes:
-        raise PipelineStepError("视觉未选出参考图", {"selected_indexes": selected_indexes})
+        raise PipelineStepError("多模态未选出参考图", {"selected_indexes": selected_indexes})
     if not prompt_items:
-        raise PipelineStepError("视觉未生成提示词", {"prompt_count": 0})
+        raise PipelineStepError("多模态未生成提示词", {"prompt_count": 0})
 
     try:
         selected_ref_bytes = [image_bytes_list[valid_indices[int(idx) - 1]] for idx in selected_indexes]
@@ -252,8 +252,8 @@ def execute(
     流程:
       1. 从 DB 读 raw_import → adapter 转成 Product
       2. 统一下载源图(只下一次,供 step1/step3 复用)
-      3. (step1上传OSS ‖ step2翻译 ‖ step3视觉)三路并行
-      4. 视觉完成后生图
+      3. (step1上传OSS ‖ step2翻译 ‖ step3多模态)三路并行
+      4. 多模态完成后生图
       5. 写回 DB,更新状态
     """
     raw_import = store.get_raw_import(user_id, import_id)
@@ -283,7 +283,7 @@ def execute(
     def _timed_out() -> bool:
         return time.monotonic() >= deadline
 
-    # ── 统一下载一次: 采集到的 Temu 原图(后续 OSS 上传/视觉解析共用) ──
+    # ── 统一下载一次: 采集到的 Temu 原图(后续 OSS 上传/多模态解析共用) ──
     # 旧版 step1 和 step3 各下载一次,白费一次网络往返。现在只下一次。
     # 但如果只跑 title(翻译)且没有图片, 跳过下载直接跑翻译。
     image_context: dict[str, Any] = {}
@@ -299,10 +299,10 @@ def execute(
             store.update_finished_at(user_id, import_id)
             return
 
-    # ── 三路并行: step1(源图上传OSS) ‖ step2(翻译) ‖ step3(视觉) ──
-    # 关键优化: 翻译和视觉不再被 step1(上传OSS ~100秒)挡着,三路同时启动。
+    # ── 三路并行: step1(源图上传OSS) ‖ step2(翻译) ‖ step3(多模态) ──
+    # 关键优化: 翻译和多模态不再被 step1(上传OSS ~100秒)挡着,三路同时启动。
     # 翻译本身只需 ~1 秒,改完前端能比旧版提前约 100 秒看到翻译结果。
-    # 视觉复用上面已下载的字节(不重复下载),省 ~5-6 秒。
+    # 多模态复用上面已下载的字节(不重复下载),省 ~5-6 秒。
     store.update_status(user_id, import_id, "generating", "translation, vision and source upload running")
     results: dict[str, Any] = {}
 
@@ -348,7 +348,7 @@ def execute(
 
     def _w3():
         import datetime as _dt
-        step_key, label = "step3_vision", "视觉解析"
+        step_key, label = "step3_vision", "多模态解析"
         started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if not image_context or not image_context.get("valid_b64"):
             results["step3"] = {"ok": False, "error": "no images for vision"}
@@ -364,7 +364,7 @@ def execute(
             results["step3"] = {"ok": True, "vision": vision}
             vision_for_db = {k: v for k, v in vision.items() if k != "_image_cache"}
             store.update_step3_vision(user_id, import_id, vision_for_db, done=True)
-            # 视觉解析不在此单独扣费: 与图片生成合并, 在任务收尾统一扣一条流水(幂等)。
+            # 多模态解析不在此单独扣费: 与图片生成合并, 在任务收尾统一扣一条流水(幂等)。
             store.record_step(user_id, import_id, step_key, "success",
                               output_data={"selected_indexes": vision.get("selected_indexes", []),
                                            "prompt_count": len(vision.get("prompt_items", [])),
@@ -408,7 +408,7 @@ def execute(
     s2 = results.get("step2", {})
     s3 = results.get("step3", {})
 
-    # 3. 生图(依赖视觉) — 仅 AI生图模块
+    # 3. 生图(依赖多模态) — 仅 AI生图模块
     generated: list[dict[str, Any]] = []
     step4_ok = False
     if run_images and s3.get("ok"):
@@ -461,7 +461,7 @@ def execute(
     store.update_finished_at(user_id, import_id)
     # ── 结算计费(hold→settle/release, 一条链接一条流水) ──
     # hold 在入队时已冻结悲观上限; 这里按实际成功数结算, 多冻的退还。
-    # 实际成本 = 视觉成功1 + 成功图数; 全失败则 release 不扣。
+    # 实际成本 = 多模态成功1 + 成功图数; 全失败则 release 不扣。
     try:
         from billing.store import settle_beans, release_beans, hold_amount_for
         hold_amount = hold_amount_for(ai_features)
@@ -474,13 +474,13 @@ def execute(
                                   vision_ok, success_images, title_ok=title_settle_ok)
             if result:
                 log(f"结算: user={user_id} import={import_id} "
-                    f"视觉={'1' if vision_ok else '0'} 图{success_images} "
+                    f"多模态={'1' if vision_ok else '0'} 图{success_images} "
                     f"扣{result.get('charged', 0)} 余额={result['balance_after']}"
                     f"{' [dedup]' if result.get('dedup') else ''}")
             else:
                 log(f"[WARN] 结算失败(无hold记录?): user={user_id} import={import_id}")
         else:
-            # 视觉失败且无成功图 → 释放冻结(不扣)
+            # 多模态失败且无成功图 → 释放冻结(不扣)
             result = release_beans(user_id, import_id, hold_amount)
             if result:
                 log(f"释放冻结(全失败不扣): user={user_id} import={import_id} "

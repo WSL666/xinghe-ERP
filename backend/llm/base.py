@@ -14,7 +14,7 @@ class LLMClient(ABC):
 
 
 class VisionClient(ABC):
-    """多模态视觉模型 (图片解析/OCR/视频理解)。"""
+    """多模态多模态模型 (图片解析/OCR/视频理解)。"""
 
     @abstractmethod
     def analyze(self, prompt: str, image_b64_list: list[str], **kwargs: Any) -> dict[str, Any]:

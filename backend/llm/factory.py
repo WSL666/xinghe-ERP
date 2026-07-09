@@ -19,7 +19,7 @@ def get_text_client(env: dict[str, str], **kwargs: Any) -> OpenAITextClient:
 
 
 def get_vision_client(env: dict[str, str], api_key: str | None = None) -> OpenAIVisionClient:
-    """多模态视觉 (图片解析)。api_key 由调用方传入(key 池轮换)。"""
+    """多模态多模态 (图片解析)。api_key 由调用方传入(key 池轮换)。"""
     return OpenAIVisionClient(env, api_key=api_key)
 
 

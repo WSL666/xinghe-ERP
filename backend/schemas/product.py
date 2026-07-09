@@ -1,6 +1,6 @@
 """统一商品模型：所有平台采集的原始数据,经各平台 adapter 标准化为此结构。
 
-下游所有 step(翻译/视觉/生图)只认这个模型,不关心数据来自 Temu 还是 1688。
+下游所有 step(翻译/多模态/生图)只认这个模型,不关心数据来自 Temu 还是 1688。
 新增平台只需写 adapter + pipeline + prompts,core/ 工具零修改。
 """
 from __future__ import annotations
