@@ -112,7 +112,13 @@ class OpenAIVisionClient:
 
 
 class OpenAIImageClient:
-    """图片生成 (OpenAI 兼容: gpt-image/Seedream 等)。"""
+    """图片生成 (OpenAI 兼容: gpt-image/Seedream 等)。
+
+    Capability 差异在 generate() 内部处理:
+      - gpt-image: 每次生成 1 张
+      - Seedream: 可一次生成多张 (n > 1)
+    调用方无需关心, 只管调 generate() 拿结果。
+    """
 
     def __init__(self, env: dict[str, str], api_key: str, base_url: str, model: str):
         self._env = env
@@ -129,6 +135,7 @@ class OpenAIImageClient:
 
     @staticmethod
     def build_edit_image(image_bytes_list: list[bytes]):
+        """Build the image argument for OpenAI SDK images.edit."""
         files = []
         for i, img_bytes in enumerate(image_bytes_list):
             mime = guess_mime_bytes(img_bytes)
@@ -154,59 +161,42 @@ class OpenAIImageClient:
         name = type(exc).__name__.lower()
         return "timeout" in name or "timed out" in str(exc).lower()
 
-    def generate(self, prompt: str, image_bytes_list: list[bytes],
-                 size: str = "1024x1024", task_name: str = "",
-                 attempt_timeout: float = 240.0, max_attempts: int = 2,
-                 **kwargs: Any) -> tuple[bytes, dict[str, Any]]:
-        """生成一张图, 返回 (图片字节, 元信息 dict)。"""
-        edit_image = self.build_edit_image(image_bytes_list)
-        started = time.perf_counter()
-        last_error = "unknown error"
+    def generate_one(
+        self,
+        prompt: str,
+        edit_image: Any,
+        size: str = "1024x1024",
+        task_name: str = "",
+        attempt_timeout: float = 240.0,
+    ) -> tuple[bytes, dict[str, Any]]:
+        """生成单张图 (内部不重试, 由调用方控制重试)。
 
-        for attempt in range(1, max_attempts + 1):
-            log(f"{task_name}: attempt {attempt}/{max_attempts} (key=...{self._api_key[-6:]})")
-            client = self._create_client()
-            attempt_started = time.perf_counter()
-            try:
-                response = client.images.edit(
-                    image=edit_image,
-                    prompt=prompt,
-                    model=self._model,
-                    size=size,
-                    n=1,
-                    output_format="png",
-                    response_format="b64_json",
-                    timeout=httpx.Timeout(attempt_timeout, connect=30.0),
-                )
-            except Exception as exc:
-                last_error = str(exc)
-                code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
-                if code in (401, 403):
-                    raise ApiKeyError(f"{task_name}: key 失效({code})", code) from exc
-                if self.is_timeout_error(exc) and attempt < max_attempts:
-                    log(f"[WARN] {task_name}: timeout ({code}), retrying with same key...")
-                    continue
-                raise
-            elapsed_attempt = time.perf_counter() - attempt_started
-            if elapsed_attempt > attempt_timeout:
-                last_error = f"single request exceeded {attempt_timeout:.0f}s (took {elapsed_attempt:.0f}s)"
-                log(f"[WARN] {task_name}: {last_error}, retrying...")
-                if attempt < max_attempts:
-                    continue
-                raise RuntimeError(f"{task_name}: {last_error}")
+        返回 (image_bytes, meta)。
+        - 401/403 → 抛 ApiKeyError(告诉上层 key 坏了)
+        - 超时 → 抛异常(调用方可重试)
+        """
+        log(f"{task_name}: calling images.edit (key=...{self._api_key[-6:]})")
+        client = self._create_client()
+        try:
+            response = client.images.edit(
+                image=edit_image,
+                prompt=prompt,
+                model=self._model,
+                size=size,
+                n=1,
+                output_format="png",
+                response_format="b64_json",
+                timeout=httpx.Timeout(attempt_timeout, connect=30.0),
+            )
+        except Exception as exc:
+            code = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            if code in (401, 403):
+                raise ApiKeyError(f"{task_name}: key 失效({code})", code) from exc
+            raise
 
-            data = response.data or []
-            if not data:
-                last_error = "image response has no data"
-                if attempt < max_attempts:
-                    log(f"[WARN] {task_name}: {last_error}, retrying...")
-                    continue
-                raise RuntimeError(f"{task_name}: {last_error}")
+        data = response.data or []
+        if not data:
+            raise RuntimeError(f"{task_name}: image response has no data")
 
-            image_bytes = self.read_result_bytes(data[0], 60.0)
-            elapsed = time.perf_counter() - started
-            log(f"[OK] {task_name}: generated ({elapsed:.2f}s, {attempt} attempt(s))")
-            meta = {"elapsed": elapsed, "attempts": attempt}
-            return image_bytes, meta
-
-        raise RuntimeError(f"{task_name} failed after {max_attempts} attempts: {last_error}")
+        image_bytes = self.read_result_bytes(data[0], 60.0)
+        return image_bytes, {"model": self._model, "size": size}

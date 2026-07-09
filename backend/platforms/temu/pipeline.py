@@ -18,19 +18,20 @@ import time
 from typing import Any
 
 from core.base import PipelineStepError, log, require_env
+from core.base import MAX_PARALLEL, PIPELINE_TOTAL_TIMEOUT
 from core.images import collect_product_images
-from core.image_gen import generate_one_image, build_edit_image, ApiKeyError
 from core.oss import (
     upload_source_image_bytes_to_oss,
     upload_source_videos_to_oss,
 )
-from core.vision import analyze_product_with_retry
+from tools.translate import translate_titles
+from tools.vision_analyze import analyze_product_with_retry
+from tools.image_gen import generate_one_image, build_edit_image
+from llm.base import ApiKeyError
 from api_key_pool import get_pool
-from core.base import call_text_llm, parse_json_response
-from core.base import MAX_PARALLEL, PIPELINE_TOTAL_TIMEOUT
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from models.product import Product, to_pipeline_input
+from schemas.product import Product, to_pipeline_input
 from platforms.temu.adapter import parse_product
 from platforms.temu.prompts import translate as translate_prompt
 from platforms.temu.prompts import vision as vision_prompt
@@ -44,19 +45,7 @@ def _step2_translate(env: dict[str, str], product: Product) -> tuple[str, str]:
     """DeepSeek 标题翻译。返回 (cn_title, en_title)。"""
     log("=" * 50)
     log(">>> TEMU STEP2: 标题翻译")
-    titles = [product.chinese_title]
-    titles_json = json.dumps(titles, ensure_ascii=False)
-    full_prompt = f"{translate_prompt.PROMPT}\n\nInput:\n{titles_json}"
-
-    raw_text = call_text_llm(
-        env, full_prompt, max_tokens=4096,
-        base_url=env.get("step2_base_url", "").strip() or None,
-        api_key=env.get("step2_api_key", "").strip() or None,
-        model=env.get("step2_model", "").strip() or None,
-    )
-    translated = parse_json_response(raw_text)
-    if not isinstance(translated, list) or not translated:
-        raise ValueError(f"翻译结果非数组: {raw_text[:200]}")
+    translated = translate_titles(env, [product.chinese_title], translate_prompt.PROMPT)
     item = translated[0]
     cn = item.get("cn_title") or item.get("chinese_title") or product.chinese_title
     en = item.get("en_title") or item.get("english_title") or ""
