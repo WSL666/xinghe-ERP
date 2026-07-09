@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from models.product import Product
+from schemas.product import Product
 
 
 def parse_product(raw_import: dict[str, Any]) -> Product:
