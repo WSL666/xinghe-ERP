@@ -1,14 +1,23 @@
-"""用户模型 key 分配: 从 model_keys.json 抽取, 写入 user_model_assignments 表。"""
+"""用户模型 key 分配: 从 model_keys.json 抽取, 写入 user_model_assignments 表。
+
+JSON 结构 (每组含完整配置, 跟 .env 彻底解耦):
+[
+  {
+    "title": [{"provider":"deepseek","model":"...","base_url":"...","api_key":"..."}],
+    "multimodal": [{"provider":"aliyun","model":"...","base_url":"...","api_key":"..."}],
+    "image": [{"provider":"doubao","model":"...","base_url":"...","api_key":"..."}]
+  }
+]
+"""
 from __future__ import annotations
 
 import json
 import threading
-from pathlib import Path
 from typing import Any
 
 from config import BACKEND_ROOT
-from core.base import load_env, log
-from store.pool import db_conn, _column_exists
+from core.base import log
+from store.pool import db_conn
 
 _JSON_PATH = BACKEND_ROOT / "model_keys.json"
 _lock = threading.Lock()
@@ -24,6 +33,7 @@ def _ensure_table() -> None:
                 task_type TEXT NOT NULL,
                 provider TEXT NOT NULL,
                 model TEXT NOT NULL,
+                base_url TEXT NOT NULL DEFAULT '',
                 api_key TEXT NOT NULL DEFAULT '',
                 created_at TIMESTAMPTZ DEFAULT now(),
                 UNIQUE(user_id, task_type)
@@ -32,7 +42,7 @@ def _ensure_table() -> None:
         )
 
 
-def _take_key_from_json() -> dict[str, str] | None:
+def _take_key_from_json() -> dict[str, list[dict]] | None:
     """从 model_keys.json 取第一个, 删掉, 写回。线程安全。"""
     with _lock:
         if not _JSON_PATH.exists():
@@ -49,82 +59,40 @@ def _take_key_from_json() -> dict[str, str] | None:
         return item
 
 
-def assign_models_to_user(user_id: int, env: dict[str, str] | None = None) -> bool:
-    """注册成功后调用: 从 JSON 抽一组 key, 写入 user_model_assignments。"""
-    env = env or load_env()
+def assign_models_to_user(user_id: int) -> bool:
+    """注册成功后调用: 从 JSON 抽一组, 写入 user_model_assignments。"""
     _ensure_table()
 
     keys = _take_key_from_json()
     if keys is None:
         log(f"[WARN] model_keys.json 库存为空, 用户 {user_id} 未分配 key")
-        _save_unassigned(user_id, env)
         return False
 
-    # 从 .env 读 provider + model, 从 JSON 读 key
-    assignments = _build_assignments(env, keys)
     with db_conn() as conn:
-        for a in assignments:
+        for task_type in ("title", "multimodal", "image"):
+            models = keys.get(task_type, [])
+            if not models:
+                continue
+            m = models[0]
             conn.execute(
                 """
-                INSERT INTO user_model_assignments (user_id, task_type, provider, model, api_key)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO user_model_assignments (user_id, task_type, provider, model, base_url, api_key)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (user_id, task_type) DO UPDATE SET
                     provider = EXCLUDED.provider,
                     model = EXCLUDED.model,
+                    base_url = EXCLUDED.base_url,
                     api_key = EXCLUDED.api_key
                 """,
-                (user_id, a["task_type"], a["provider"], a["model"], a["api_key"]),
+                (user_id, task_type, m["provider"], m["model"], m["base_url"], m["api_key"]),
             )
         conn.execute("UPDATE users SET model_assigned = TRUE WHERE id = %s", (user_id,))
-    log(f"用户 {user_id} 模型分配完成: {len(assignments)} 个任务")
+    log(f"用户 {user_id} 模型分配完成")
     return True
 
 
-def _build_assignments(env: dict[str, str], keys: dict[str, str]) -> list[dict[str, str]]:
-    """组装: .env 读 provider+model, JSON 读 key。"""
-    result = []
-    for task, default_provider_env, key_field in [
-        ("title", "TITLE_PROVIDER", "deepseek_key"),
-        ("multimodal", "MULTIMODAL_PROVIDER", "aliyun_key"),
-        ("image", "IMAGE_PROVIDER", "doubao_key"),
-    ]:
-        provider = env.get(default_provider_env, "").strip().lower()
-        model = env.get(f"{task.upper()}_MODEL", "").strip()
-        if not provider or not model:
-            continue
-        api_key = keys.get(key_field, "")
-        result.append({
-            "task_type": task,
-            "provider": provider,
-            "model": model,
-            "api_key": api_key,
-        })
-    return result
-
-
-def _save_unassigned(user_id: int, env: dict[str, str]) -> None:
-    """库存为空时: 用 .env 默认 key 写入 (共享 key)。"""
-    assignments = _build_assignments(env, {})
-    with db_conn() as conn:
-        for a in assignments:
-            # 读平台默认 key
-            platform_key = env.get(f"{a['provider'].upper()}_API_KEY", "")
-            conn.execute(
-                """
-                INSERT INTO user_model_assignments (user_id, task_type, provider, model, api_key)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (user_id, task_type) DO UPDATE SET
-                    provider = EXCLUDED.provider,
-                    model = EXCLUDED.model,
-                    api_key = EXCLUDED.api_key
-                """,
-                (user_id, a["task_type"], a["provider"], a["model"], platform_key),
-            )
-        conn.execute("UPDATE users SET model_assigned = TRUE WHERE id = %s", (user_id,))
-
-
 def get_user_assignments(user_id: int) -> list[dict[str, Any]]:
-    """读用户的模型分配。"""
+    """读用户的模型分配 (不含 api_key, 供前端展示)。"""
     _ensure_table()
     with db_conn() as conn:
         rows = conn.execute(
@@ -134,13 +102,12 @@ def get_user_assignments(user_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def get_user_task_config(user_id: int, task: str, env: dict[str, str] | None = None) -> dict[str, str]:
-    """pipeline 用: 读用户分配的 key, 没有就回退 .env。"""
-    env = env or load_env()
+def get_user_task_config(user_id: int, task: str) -> dict[str, str]:
+    """pipeline 用: 读用户分配的完整配置。"""
     _ensure_table()
     with db_conn() as conn:
         row = conn.execute(
-            "SELECT provider, model, api_key FROM user_model_assignments WHERE user_id = %s AND task_type = %s",
+            "SELECT provider, model, base_url, api_key FROM user_model_assignments WHERE user_id = %s AND task_type = %s",
             (user_id, task),
         ).fetchone()
 
@@ -149,10 +116,10 @@ def get_user_task_config(user_id: int, task: str, env: dict[str, str] | None = N
             "provider": row["provider"],
             "model": row["model"],
             "model_type": "openai",
-            "base_url": env.get(f"{row['provider'].upper()}_BASE_URL", ""),
+            "base_url": row["base_url"],
             "api_key": row["api_key"],
         }
 
-    # 回退: 用 .env 平台默认 key
+    # 回退: 用 .env
     from store.model_config import get_task_config
-    return get_task_config(task, env)
+    return get_task_config(task)
