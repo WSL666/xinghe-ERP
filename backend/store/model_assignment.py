@@ -17,7 +17,7 @@ from typing import Any
 
 from config import BACKEND_ROOT
 from core.base import log
-from store.pool import db_conn
+from store.pool import db_conn, _column_exists
 
 _JSON_PATH = BACKEND_ROOT / "model_keys.json"
 _lock = threading.Lock()
@@ -40,6 +40,9 @@ def _ensure_table() -> None:
             )
             """
         )
+        # 兼容旧表: 补 base_url 列
+        if not _column_exists(conn, "user_model_assignments", "base_url"):
+            conn.execute("ALTER TABLE user_model_assignments ADD COLUMN base_url TEXT NOT NULL DEFAULT ''")
 
 
 def _take_key_from_json() -> dict[str, list[dict]] | None:
