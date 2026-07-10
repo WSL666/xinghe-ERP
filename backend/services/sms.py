@@ -160,7 +160,7 @@ def verify_code(raw_account: str, code: str) -> bool:
     from pathlib import Path
     import fcntl
 
-    codes_path = Path(__file__).resolve().parent / "sms_codes.txt"
+    codes_path = Path(__file__).resolve().parent.parent / "sms_codes.txt"
     if not codes_path.exists():
         logger.warning("sms_codes.txt not found; registration blocked")
         return False

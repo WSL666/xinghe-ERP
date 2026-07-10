@@ -1,13 +1,113 @@
 [
   {
     "llm": [
-      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-aaa"}
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
     ],
     "multimodal": [
-      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-bbb"}
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
     ],
     "image_gen": [
-      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "ccc"}
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
+    ]
+  },
+  {
+    "llm": [
+      {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-60344e6b3e91432cafe1547d2fddff1a"}
+    ],
+    "multimodal": [
+      {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-ws-H.EMPLPHL.ElS8.MEQCIE_GzVs9i59_cSEUTaJTbdcI4nIDF6gH5CQ8Dan8YdUlAiBrR_HmhVNfs-adkE1DMwA34ttJ4UDvdlxPyLwRb5lwtg"}
+    ],
+    "image_gen": [
+      {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "3aeadee2-56bf-407e-800a-3f5e9752d621"}
     ]
   }
+  
 ]
