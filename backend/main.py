@@ -56,8 +56,6 @@ def _startup() -> None:
     from billing.store import init_billing_tables
     init_billing_tables()
     # API Key 池自愈:池子为空时从 .env 自动恢复兜底 key(防 FLUSHDB/Redis 重启后丢失)
-    from api_key_pool.pool import bootstrap_from_env
-    bootstrap_from_env()
     if settings.app_env != "production":
         get_or_create_dev_user()
     # 崩溃恢复已移交 worker 进程独占(worker.py 启动时清队列 + 重新入队)。

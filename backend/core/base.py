@@ -1,54 +1,56 @@
+"""基础设施: 日志 + trace_id + 常量 + 工具函数。"""
 from __future__ import annotations
 
-import base64
-import hashlib
-import json
 import re
 import threading
-import time
-import urllib.error
-import urllib.request
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import httpx
-from openai import APITimeoutError, OpenAI
+import json
 
 from config import BACKEND_ROOT, ENV_PATH
 
-# 根目录(backend_new)
 PIPELINE_ROOT = BACKEND_ROOT
 ENV_PATH = ENV_PATH
 
-# 图片生成 API 常量
-VIBE_OUTPUT_FORMAT = "png"
-VIBE_RESPONSE_FORMAT = "b64_json"
-
-IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp"}
+# 常量
 MAX_PARALLEL = 10
 IMAGE_DOWNLOAD_CONCURRENCY = 8
-IMAGE_ATTEMPT_TIMEOUT = 240.0  # 单张图超时:正常70~186s,超240s判卡死
-MAX_IMAGE_ATTEMPTS = 2
 IMAGE_DOWNLOAD_TIMEOUT = 60.0
-MULTIMODAL_TIMEOUT = 300.0
-MULTIMODAL_MAX_ATTEMPTS = 3
-
-# 单条 import 流水线总时长兜底：超过即强制判失败，防止任何步骤卡死导致僵尸任务
 PIPELINE_TOTAL_TIMEOUT = 900.0
 
 _print_lock = threading.Lock()
 
+# trace_id: 每条 pipeline 生一个, 贯穿所有 step
+_trace_id: threading.local = threading.local()
+
+
+def set_trace_id(trace_id: str | None = None) -> str:
+    _trace_id.value = trace_id or uuid.uuid4().hex[:12]
+    return _trace_id.value
+
+
+def get_trace_id() -> str:
+    return getattr(_trace_id, "value", "")
+
+
+def clear_trace_id() -> None:
+    _trace_id.value = ""
+
 
 def log(message: str) -> None:
     ts = datetime.now().strftime("%H:%M:%S")
+    tid = get_trace_id()
+    prefix = f"[{ts}]" + (f"[trace={tid}]" if tid else "")
     safe = message.encode("ascii", errors="replace").decode("ascii")
     with _print_lock:
-        print(f"[{ts}] {safe}", flush=True)
+        print(f"{prefix} {safe}", flush=True)
 
 
 class PipelineStepError(RuntimeError):
-    """携带结构化 detail 的步骤异常,供上层写入 DB 日志。"""
+    """携带结构化 detail 的步骤异常。"""
 
     def __init__(self, message: str, detail: dict[str, Any] | None = None):
         super().__init__(message)
@@ -88,26 +90,3 @@ def parse_json_response(text: str) -> Any:
         if start == -1 or end == -1 or end <= start:
             raise
         return json.loads(text[start : end + 1])
-
-
-def call_text_llm(env: dict[str, str], prompt_str: str, max_tokens: int = 4096,
-                  base_url: str = None, api_key: str = None, model: str = None) -> str:
-    """调用文本 OpenAI 兼容 LLM(如 DeepSeek)。"""
-    _api_key = api_key or require_env(env, "step2_api_key")
-    _base_url = (base_url or require_env(env, "step2_base_url")).rstrip("/")
-    if _base_url.endswith("/chat/completions"):
-        _base_url = _base_url[: -len("/chat/completions")]
-    _model = model or env.get("step2_model", "deepseek-chat")
-
-    log(f"text LLM: model={_model}, base={_base_url}")
-    client = OpenAI(base_url=_base_url, api_key=_api_key)
-    resp = client.chat.completions.create(
-        model=_model,
-        messages=[{"role": "user", "content": prompt_str}],
-        max_tokens=max_tokens,
-        timeout=120,
-    )
-    content = resp.choices[0].message.content
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("LLM API returned empty content")
-    return content.strip()

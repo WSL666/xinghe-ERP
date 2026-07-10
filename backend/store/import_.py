@@ -71,7 +71,7 @@ def _row_to_import(row: dict[str, Any], compact: bool = True) -> dict[str, Any]:
         item["started_at"] = item["started_at"].strftime("%Y-%m-%d %H:%M:%S")
     if isinstance(item.get("finished_at"), datetime):
         item["finished_at"] = item["finished_at"].strftime("%Y-%m-%d %H:%M:%S")
-    for key in ("step2_done", "step3_done", "step4_done", "exported"):
+    for key in ("translate_done", "analyze_done", "generate_done", "exported"):
         item[key] = 1 if item.get(key) else 0
     item["ai_features"] = _json(item.get("ai_features"), [])
     owner_uid = item.pop("owner_uid", None) or ""
@@ -164,36 +164,36 @@ def update_raw_import(user_id: int, import_id: int, raw_import: dict[str, Any]) 
         )
 
 
-def update_step2(user_id: int, import_id: int, cn_title: str, en_title: str) -> None:
+def update_translate(user_id: int, import_id: int, cn_title: str, en_title: str) -> None:
     with db_conn() as conn:
         conn.execute(
             """
             UPDATE imports
-            SET step2_done = TRUE, cn_title = %s, en_title = %s, updated_at = now()
+            SET translate_done = TRUE, cn_title = %s, en_title = %s, updated_at = now()
             WHERE user_id = %s AND id = %s
             """,
             (cn_title, en_title, user_id, import_id),
         )
 
 
-def update_step3_multimodal(user_id: int, import_id: int, multimodal_data: dict[str, Any], done: bool = True) -> None:
+def update_analyze(user_id: int, import_id: int, multimodal_data: dict[str, Any], done: bool = True) -> None:
     with db_conn() as conn:
         conn.execute(
             """
             UPDATE imports
-            SET step3_done = %s, multimodal_json = %s, updated_at = now()
+            SET analyze_done = %s, multimodal_json = %s, updated_at = now()
             WHERE user_id = %s AND id = %s
             """,
             (done, json.dumps(multimodal_data, ensure_ascii=False), user_id, import_id),
         )
 
 
-def update_step4(user_id: int, import_id: int, generated: list[dict[str, Any]], done: bool = True) -> None:
+def update_generate(user_id: int, import_id: int, generated: list[dict[str, Any]], done: bool = True) -> None:
     with db_conn() as conn:
         conn.execute(
             """
             UPDATE imports
-            SET step4_done = %s, generated_json = %s, updated_at = now()
+            SET generate_done = %s, generated_json = %s, updated_at = now()
             WHERE user_id = %s AND id = %s
             """,
             (done, json.dumps(generated, ensure_ascii=False), user_id, import_id),
