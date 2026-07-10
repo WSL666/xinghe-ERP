@@ -20,8 +20,8 @@ from core.oss import (
     upload_source_image_bytes_to_oss,
     upload_source_videos_to_oss,
 )
-from tools.dispatch import run_translate, run_multimodal, run_image_gen
-from tools.doubao_image import build_edit_image
+from tools.dispatch import run_llm, run_multimodal, run_image_gen
+from tools.doubao_image_gen import build_edit_image
 from tools.tool_result import ToolResult
 
 from schemas.product import Product, to_pipeline_input
@@ -32,11 +32,11 @@ from platforms.temu.prompts import multimodal as multimodal_prompt
 
 # ── 各步骤实现 (无 step 命名, 用业务语义) ──
 
-def _translate(env: dict[str, str], product: Product, user_id: int = 0) -> tuple[str, str]:
+def _run_llm(env: dict[str, str], product: Product, user_id: int = 0) -> tuple[str, str]:
     """翻译: 调 dispatch → DeepSeek。返回 (cn_title, en_title)。"""
     log("=" * 50)
     log(">>> 翻译")
-    r: ToolResult = run_translate(env, [product.chinese_title], translate_prompt.PROMPT, user_id=user_id)
+    r: ToolResult = run_llm(env, [product.chinese_title], translate_prompt.PROMPT, user_id=user_id)
     if not r.is_success:
         raise PipelineStepError(f"翻译失败: {r.error}", {"error_code": r.error_code})
 
@@ -85,7 +85,7 @@ def _generate(env: dict[str, str], product: Product, multimodal: dict[str, Any],
     log("=" * 50)
     log(">>> 图片生成")
 
-    size = env.get("IMAGE_SIZE", "1024x1024")
+    size = env.get("IMAGE_GEN_SIZE", "1024x1024")
     selected_indexes = [int(i) for i in multimodal.get("selected_indexes", [])]
     raw_prompt_items = multimodal.get("prompt_items", [])
 
@@ -179,9 +179,9 @@ def execute(
 
     _full = store.get_import(user_id, import_id)
     ai_features = (_full.get("ai_features") if _full else None) or raw_import.get("ai_features") or []
-    run_title = "title" in ai_features
-    run_images = "images" in ai_features
-    if not run_title and not run_images:
+    run_llm_flag = "llm" in ai_features
+    run_image_gen_flag = "image_gen" in ai_features
+    if not run_llm_flag and not run_image_gen_flag:
         try:
             store.update_status(user_id, import_id, "done", "无AI模块")
         except Exception:
@@ -234,20 +234,20 @@ def execute(
         import datetime as _dt
         started = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
-            store.record_step(user_id, import_id, "translate", "running",
+            store.record_step(user_id, import_id, "llm", "running",
                               input_data={"title": product.chinese_title},
-                              started_at=started, finished_at=started, label="标题翻译")
-            cn, en = _translate(env, product, user_id=user_id)
-            results["translate"] = {"ok": True, "cn": cn, "en": en}
+                              started_at=started, finished_at=started, label="LLM文本")
+            cn, en = _run_llm(env, product, user_id=user_id)
+            results["llm"] = {"ok": True, "cn": cn, "en": en}
             store.update_translate(user_id, import_id, cn, en)
-            store.record_step(user_id, import_id, "translate", "success",
+            store.record_step(user_id, import_id, "llm", "success",
                               output_data={"cn_title": cn, "en_title": en},
-                              started_at=started, label="标题翻译")
+                              started_at=started, label="LLM文本")
         except Exception as exc:
-            results["translate"] = {"ok": False, "error": str(exc)}
+            results["llm"] = {"ok": False, "error": str(exc)}
             store.update_translate(user_id, import_id, product.chinese_title, "")
-            store.record_step(user_id, import_id, "translate", "failed",
-                              error=str(exc), started_at=started, label="标题翻译")
+            store.record_step(user_id, import_id, "llm", "failed",
+                              error=str(exc), started_at=started, label="LLM文本")
 
     def _w_analyze():
         import datetime as _dt
@@ -279,9 +279,9 @@ def execute(
     workers: list = []
     workers.append(threading.Thread(target=_w_upload, daemon=True))
     workers.append(threading.Thread(target=_w_upload_video, daemon=True))
-    if run_title:
+    if run_llm_flag:
         workers.append(threading.Thread(target=_w_translate, daemon=True))
-    if run_images:
+    if run_image_gen_flag:
         workers.append(threading.Thread(target=_w_analyze, daemon=True))
     for w in workers:
         w.start()
@@ -293,7 +293,7 @@ def execute(
     generated: list[dict[str, Any]] = []
     generate_ok = False
     s_analyze = results.get("analyze", {})
-    if run_images and s_analyze.get("ok"):
+    if run_image_gen_flag and s_analyze.get("ok"):
         analysis = s_analyze["analysis"]
         store.update_status(user_id, import_id, "generating", "多模态完成, 生图中")
         store.update_generate(user_id, import_id, [], done=False)
@@ -323,14 +323,14 @@ def execute(
     # 收尾
     ok_count = sum(1 for g in generated if g.get("generated_image"))
     fail_count = sum(1 for g in generated if g.get("error"))
-    s_translate = results.get("translate", {})
-    title_ok = bool(s_translate.get("ok")) if run_title else True
-    images_ok = bool(s_analyze.get("ok")) and generate_ok if run_images else True
+    s_translate = results.get("llm", {})
+    title_ok = bool(s_translate.get("ok")) if run_llm_flag else True
+    images_ok = bool(s_analyze.get("ok")) and generate_ok if run_image_gen_flag else True
     done = title_ok and images_ok
     msg = f"success {ok_count}" + (f", failed {fail_count}" if fail_count else "")
-    if run_title and not s_translate.get("ok"):
+    if run_llm_flag and not s_translate.get("ok"):
         msg = "翻译失败; " + msg
-    if run_images and not s_analyze.get("ok"):
+    if run_image_gen_flag and not s_analyze.get("ok"):
         msg = "多模态失败; " + msg
     store.update_status(user_id, import_id, "done" if done else "error", msg)
     store.update_finished_at(user_id, import_id)
@@ -339,9 +339,9 @@ def execute(
     try:
         from billing.store import settle_beans, release_beans, hold_amount_for
         hold_amount = hold_amount_for(ai_features)
-        multimodal_ok = bool(s_analyze.get("ok")) if run_images else False
-        success_images = sum(1 for g in generated if g.get("generated_image")) if run_images else 0
-        title_settle_ok = bool(s_translate.get("ok")) if run_title else False
+        multimodal_ok = bool(s_analyze.get("ok")) if run_image_gen_flag else False
+        success_images = sum(1 for g in generated if g.get("generated_image")) if run_image_gen_flag else 0
+        title_settle_ok = bool(s_translate.get("ok")) if run_llm_flag else False
         if title_settle_ok or multimodal_ok or success_images > 0:
             result = settle_beans(user_id, import_id, hold_amount,
                                   multimodal_ok, success_images, title_ok=title_settle_ok)

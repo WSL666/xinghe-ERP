@@ -3,9 +3,9 @@
 JSON 结构 (每组含完整配置, 跟 .env 彻底解耦):
 [
   {
-    "title": [{"provider":"deepseek","model":"...","base_url":"...","api_key":"..."}],
+    "llm": [{"provider":"deepseek","model":"...","base_url":"...","api_key":"..."}],
     "multimodal": [{"provider":"aliyun","model":"...","base_url":"...","api_key":"..."}],
-    "image": [{"provider":"doubao","model":"...","base_url":"...","api_key":"..."}]
+    "image_gen": [{"provider":"doubao","model":"...","base_url":"...","api_key":"..."}]
   }
 ]
 """
@@ -69,7 +69,7 @@ def assign_models_to_user(user_id: int) -> bool:
         return False
 
     with db_conn() as conn:
-        for task_type in ("title", "multimodal", "image"):
+        for task_type in ("llm", "multimodal", "image_gen"):
             models = keys.get(task_type, [])
             if not models:
                 continue

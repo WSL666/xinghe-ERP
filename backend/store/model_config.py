@@ -1,13 +1,11 @@
-"""用户模型配置 CRUD。平台配置从 .env 读，任务映射从 .env 读。
+"""任务配置读取 (.env 回退用)。
 
 .env 结构:
   {PLATFORM}_BASE_URL / {PLATFORM}_API_KEY  → 平台凭证
-  TITLE_PROVIDER / TITLE_MODEL             → 翻译用哪个平台哪个模型
+  LLM_PROVIDER / LLM_MODEL                 → 文本 LLM
   MULTIMODAL_PROVIDER / MULTIMODAL_MODEL   → 多模态
-  IMAGE_PROVIDER / IMAGE_MODEL             → 生图
-  VIDEO_PROVIDER / VIDEO_MODEL             → 视频
-
-所有国内模型都是 OpenAI 兼容，model_type 默认 "openai"。
+  IMAGE_GEN_PROVIDER / IMAGE_GEN_MODEL     → 生图
+  VIDEO_GEN_PROVIDER / VIDEO_GEN_MODEL     → 视频
 """
 from __future__ import annotations
 
@@ -17,7 +15,6 @@ from core.base import load_env
 
 
 def get_platform_config(provider: str, env: dict[str, str] | None = None) -> dict[str, str]:
-    """根据 provider 名读 {PROVIDER}_BASE_URL + {PROVIDER}_API_KEY。"""
     env = env or load_env()
     prefix = provider.upper()
     base_url = env.get(f"{prefix}_BASE_URL", "").strip()
@@ -27,13 +24,18 @@ def get_platform_config(provider: str, env: dict[str, str] | None = None) -> dic
     return {"provider": provider, "base_url": base_url, "api_key": api_key}
 
 
-def get_task_config(task: str, env: dict[str, str] | None = None) -> dict[str, str]:
-    """读任务配置: provider + model + model_type + base_url + api_key。
+# task → .env 前缀映射
+_TASK_ENV = {
+    "llm": "LLM",
+    "multimodal": "MULTIMODAL",
+    "image_gen": "IMAGE_GEN",
+    "video_gen": "VIDEO_GEN",
+}
 
-    task: "title" | "multimodal" | "image" | "video"
-    """
+
+def get_task_config(task: str, env: dict[str, str] | None = None) -> dict[str, str]:
     env = env or load_env()
-    prefix = task.upper()
+    prefix = _TASK_ENV.get(task, task.upper())
     provider = env.get(f"{prefix}_PROVIDER", "").strip().lower()
     model = env.get(f"{prefix}_MODEL", "").strip()
     if not provider or not model:
@@ -43,19 +45,18 @@ def get_task_config(task: str, env: dict[str, str] | None = None) -> dict[str, s
     return {
         "provider": provider,
         "model": model,
-        "model_type": "openai",  # 国内模型都是 OpenAI 兼容
+        "model_type": "openai",
         "base_url": platform["base_url"],
         "api_key": platform["api_key"],
     }
 
 
 def get_all_task_configs(env: dict[str, str] | None = None) -> dict[str, dict[str, str]]:
-    """一次读全部任务配置。"""
     env = env or load_env()
     configs: dict[str, dict[str, str]] = {}
-    for task in ("title", "multimodal", "image", "video"):
+    for task in _TASK_ENV:
         try:
             configs[task] = get_task_config(task, env)
         except ValueError:
-            pass  # 未配置的任务跳过
+            pass
     return configs

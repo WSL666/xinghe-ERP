@@ -576,15 +576,15 @@ function renderAIBadges(item) {
   const aiStatus = (item.status || "").trim();
   const features = item.ai_features || [];
   if (!features.length && !aiStatus) return "";
-  const titleDone = item.step2_done ? "done" : (aiStatus && features.includes("title") ? aiStatus : "");
-  const imagesDone = item.step3_done ? "done" : (aiStatus && features.includes("images") ? aiStatus : "");
+  const titleDone = item.step2_done ? "done" : (aiStatus && features.includes("llm") ? aiStatus : "");
+  const imagesDone = item.step3_done ? "done" : (aiStatus && features.includes("image_gen") ? aiStatus : "");
   let html = "";
-  if (features.includes("title") || titleDone) {
+  if (features.includes("llm") || titleDone) {
     const cls = titleDone === "done" ? "done" : (aiStatus || "idle");
     const icon = cls === "done" ? "✅" : cls === "generating" ? "⏳" : cls === "queued" ? "⏳" : cls === "error" ? "❌" : cls === "insufficient" ? "🔴" : "⬜";
     html += `<span class="ai-badge ${cls}" title="AI标题">🏷️${icon}</span>`;
   }
-  if (features.includes("images") || imagesDone) {
+  if (features.includes("image_gen") || imagesDone) {
     const cls = imagesDone === "done" ? "done" : (aiStatus || "idle");
     const icon = cls === "done" ? "✅" : cls === "generating" ? "⏳" : cls === "queued" ? "⏳" : cls === "error" ? "❌" : cls === "insufficient" ? "🔴" : "⬜";
     html += `<span class="ai-badge ${cls}" title="AI生图">🖼️${icon}</span>`;
@@ -987,7 +987,7 @@ async function retryItem(id) {
   try {
     await apiFetch(`/api/temu/imports/${id}/ai-run`, {
       method: "POST",
-      body: JSON.stringify({ features: ["title", "images"] }),
+      body: JSON.stringify({ features: ["llm", "image_gen"] }),
     });
     toast("已重新加入队列。");
     state.selectedIds && state.selectedIds.delete(Number(id));
@@ -1031,7 +1031,7 @@ async function batchRetry() {
     try {
       await apiFetch(`/api/temu/imports/${id}/ai-run`, {
         method: "POST",
-        body: JSON.stringify({ features: ["title", "images"] }),
+        body: JSON.stringify({ features: ["llm", "image_gen"] }),
       });
       state.selectedIds && state.selectedIds.delete(Number(id));
       ok++;
@@ -1044,7 +1044,7 @@ async function batchRetry() {
 async function batchAIProcess() {
   // 全自动批量AI处理: 从下拉框读并发数, 扫描所有"已采集未跑AI"的链接, 全链路分批跑完
   const concurrency = parseInt($("#aiConcurrency")?.value || "1", 10);
-  const features = ["title", "images"];
+  const features = ["llm", "image_gen"];
   toast("正在扫描已采集商品...");
   let pending = [];
   try {
@@ -1256,8 +1256,8 @@ function openAIEdit(id) {
              ${titleDone ? `<span class="ai-done-tag">✅ 已有AI标题</span>` : ""}
            </div>
            ${titleDone
-             ? `<button class="ai-regen-btn" data-action="ai-run" data-id="${item.id}" data-features="title">🔄 重新生成</button>`
-             : `<button class="ai-gen-btn" data-action="ai-run" data-id="${item.id}" data-features="title">AI生成</button>`}
+             ? `<button class="ai-regen-btn" data-action="ai-run" data-id="${item.id}" data-features="llm">🔄 重新生成</button>`
+             : `<button class="ai-gen-btn" data-action="ai-run" data-id="${item.id}" data-features="llm">AI生成</button>`}
          </div>
          <div class="ai-edit-block">
            <div class="ai-edit-block-head">
@@ -1265,8 +1265,8 @@ function openAIEdit(id) {
              ${imagesDone ? `<span class="ai-done-tag">✅ 已有AI图片</span>` : ""}
            </div>
            ${imagesDone
-             ? `<button class="ai-regen-btn" data-action="ai-run" data-id="${item.id}" data-features="images">🔄 重新生成</button>`
-             : `<button class="ai-gen-btn" data-action="ai-run" data-id="${item.id}" data-features="images">AI生成</button>`}
+             ? `<button class="ai-regen-btn" data-action="ai-run" data-id="${item.id}" data-features="image_gen">🔄 重新生成</button>`
+             : `<button class="ai-gen-btn" data-action="ai-run" data-id="${item.id}" data-features="image_gen">AI生成</button>`}
          </div>
        </div>`;
   drawer.innerHTML = `
@@ -1570,8 +1570,8 @@ function bindEvents() {
       if (action === "close-drawer") closeDrawer();
       if (action === "ai-run") {
         const feats = (actionButton.dataset.features || "").split(",").filter(Boolean);
-        const cost = feats.includes("images") ? "10" : "1";
-        const label = feats.includes("images") ? "AI生图" : "AI标题";
+        const cost = feats.includes("image_gen") ? "10" : "1";
+        const label = feats.includes("image_gen") ? "AI生图" : "AI文本";
         const isRegen = actionButton.classList.contains("ai-regen-btn");
         const prompt = isRegen
           ? `已有${label}，重新生成将覆盖原数据，本次扣 ${cost} 金豆，确定？`

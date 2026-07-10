@@ -115,9 +115,9 @@ async def temu_import(payload: dict[str, Any], request: Request) -> dict[str, An
     ai_cfg = get_ai_settings(uid)
     features = []
     if ai_cfg.get("ai_title_enabled"):
-        features.append("title")
+        features.append("llm")
     if ai_cfg.get("ai_images_enabled"):
-        features.append("images")
+        features.append("image_gen")
 
     from billing.store import hold_amount_for as _hold_amt, hold_beans, get_available_beans
 
@@ -437,7 +437,7 @@ async def temu_ai_image_restore(import_id: int, payload: dict[str, Any],
 async def temu_ai_run(import_id: int,
                       payload: dict[str, Any] = Body(default=None),
                       user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
-    """手动触发某条链接的 AI 处理。features: ["title"] / ["images"] / ["title","images"]。"""
+    """手动触发某条链接的 AI 处理。features: ["llm"] / ["image_gen"] / ["llm","image_gen"]。"""
     uid = int(user["id"])
     if not get_import(uid, import_id):
         raise _err(f"import {import_id} not found", 404)

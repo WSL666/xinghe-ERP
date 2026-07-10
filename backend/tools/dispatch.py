@@ -26,11 +26,11 @@ def _get_config(task: str, user_id: int) -> dict[str, str]:
     return get_user_task_config(user_id, task)
 
 
-def run_translate(env: dict[str, str], titles: list[str], prompt_template: str,
-                  user_id: int | None = None) -> ToolResult:
-    cfg = _get_config("title", user_id)
-    module = get_tool("title", cfg["provider"])
-    log(f"翻译: provider={cfg['provider']}, model={cfg['model']}")
+def run_llm(env: dict[str, str], titles: list[str], prompt_template: str,
+            user_id: int | None = None) -> ToolResult:
+    cfg = _get_config("llm", user_id)
+    module = get_tool("llm", cfg["provider"])
+    log(f"LLM: provider={cfg['provider']}, model={cfg['model']}")
     return module.translate(cfg, titles, prompt_template)
 
 
@@ -45,7 +45,7 @@ def run_multimodal(env: dict[str, str], prompt: str, image_b64_list: list[str],
 def run_image_gen(env: dict[str, str], task_name: str, prompt: str,
                   edit_image: Any, size: str = "1024x1024",
                   user_id: int | None = None) -> ToolResult:
-    cfg = _get_config("image", user_id)
-    module = get_tool("image", cfg["provider"])
+    cfg = _get_config("image_gen", user_id)
+    module = get_tool("image_gen", cfg["provider"])
     log(f"生图: provider={cfg['provider']}, model={cfg['model']}")
     return module.generate(cfg, task_name, prompt, edit_image, size)

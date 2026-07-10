@@ -1,12 +1,12 @@
 [
   {
-    "title": [
+    "llm": [
       {"provider": "deepseek", "model": "deepseek-v4-flash", "base_url": "https://api.deepseek.com", "api_key": "sk-aaa"}
     ],
     "multimodal": [
       {"provider": "aliyun", "model": "qwen3.7-plus", "base_url": "https://llm-pdgh83q0ecmlonqw.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "api_key": "sk-bbb"}
     ],
-    "image": [
+    "image_gen": [
       {"provider": "doubao", "model": "doubao-seedream-5-0-260128", "base_url": "https://ark.cn-beijing.volces.com/api/v3", "api_key": "ccc"}
     ]
   }
