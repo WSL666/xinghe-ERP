@@ -488,6 +488,18 @@ async def temu_health() -> dict[str, Any]:
     return _ok(status="healthy")
 
 
+@router.get("/model-config")
+async def temu_model_config(user: dict[str, Any] = Depends(_current_user)) -> dict[str, Any]:
+    """读用户当前分配的模型配置 (只读展示, 不含 key)。"""
+    from store.model_assignment import get_user_assignments
+    assignments = get_user_assignments(int(user["id"]))
+    models = {}
+    for a in assignments:
+        task = a["task_type"]
+        models[task] = {"provider": a["provider"], "model": a["model"]}
+    return _ok(models=models)
+
+
 def _ensure_plugin_zip() -> Path:
     """确保采集插件 zip 是最新源码打包的(进程级缓存 + 源码变更检测)。
 

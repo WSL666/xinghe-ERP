@@ -32,11 +32,11 @@ from platforms.temu.prompts import multimodal as multimodal_prompt
 
 # ── 各步骤实现 (无 step 命名, 用业务语义) ──
 
-def _translate(env: dict[str, str], product: Product) -> tuple[str, str]:
+def _translate(env: dict[str, str], product: Product, user_id: int = 0) -> tuple[str, str]:
     """翻译: 调 dispatch → DeepSeek。返回 (cn_title, en_title)。"""
     log("=" * 50)
     log(">>> 翻译")
-    r: ToolResult = run_translate(env, [product.chinese_title], translate_prompt.PROMPT)
+    r: ToolResult = run_translate(env, [product.chinese_title], translate_prompt.PROMPT, user_id=user_id)
     if not r.is_success:
         raise PipelineStepError(f"翻译失败: {r.error}", {"error_code": r.error_code})
 
@@ -47,7 +47,7 @@ def _translate(env: dict[str, str], product: Product) -> tuple[str, str]:
     return cn, en
 
 
-def _analyze(env: dict[str, str], product: Product,
+def _analyze(env: dict[str, str], product: Product, user_id: int = 0,
              image_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """多模态解析: 调 dispatch → Qwen。返回 payload + selected_indexes + prompt_items。"""
     log("=" * 50)
@@ -59,6 +59,7 @@ def _analyze(env: dict[str, str], product: Product,
     log(f"调多模态模型: {len(image_context['valid_b64'])} 张图")
     r: ToolResult = run_multimodal(
         env, prompt, image_context["valid_b64"], image_context["valid_images"],
+        user_id=user_id,
     )
     if not r.is_success:
         raise PipelineStepError(f"多模态失败: {r.error}", {"error_code": r.error_code})
@@ -120,7 +121,7 @@ def _generate(env: dict[str, str], product: Product, multimodal: dict[str, Any],
     def _gen_one(task_idx: int, task_total: int, task_number: int, image_prompt: str) -> dict:
         task_name = f"image_{task_number}"
         log(f"[{task_idx}/{task_total}] {task_name} 开始")
-        r: ToolResult = run_image_gen(env, task_name, image_prompt, edit_image, size)
+        r: ToolResult = run_image_gen(env, task_name, image_prompt, edit_image, size, user_id=user_id)
         if r.is_success:
             log(f"[{task_idx}/{task_total}] {task_name} OK ({r.metadata.get('elapsed', 0):.1f}s)")
             return r.data
@@ -236,7 +237,7 @@ def execute(
             store.record_step(user_id, import_id, "translate", "running",
                               input_data={"title": product.chinese_title},
                               started_at=started, finished_at=started, label="标题翻译")
-            cn, en = _translate(env, product)
+            cn, en = _translate(env, product, user_id=user_id)
             results["translate"] = {"ok": True, "cn": cn, "en": en}
             store.update_translate(user_id, import_id, cn, en)
             store.record_step(user_id, import_id, "translate", "success",
@@ -254,7 +255,7 @@ def execute(
         try:
             store.record_step(user_id, import_id, "analyze", "running",
                               started_at=started, finished_at=started, label="多模态解析")
-            analysis = _analyze(env, product, image_context=image_context) if has_images else None
+            analysis = _analyze(env, product, user_id=user_id, image_context=image_context) if has_images else None
             if analysis:
                 results["analyze"] = {"ok": True, "analysis": analysis}
                 analysis_for_db = {k: v for k, v in analysis.items() if k != "_image_cache"}

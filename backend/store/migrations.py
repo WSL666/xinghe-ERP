@@ -121,6 +121,7 @@ def init_db() -> None:
             ("role", "TEXT NOT NULL DEFAULT 'member'"),
             ("ai_title_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
             ("ai_images_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("model_assigned", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ]:
             if not _column_exists(conn, "users", col):
                 conn.execute(f"ALTER TABLE users ADD COLUMN {col} {col_def}")

@@ -2113,3 +2113,18 @@ tbody tr:nth-child(even) td {
 .ai-regen-btn:hover { opacity: 0.9; }
 .ai-title-result .title-line { display: flex; gap: 6px; margin: 4px 0; font-size: 13px; }
 .ai-title-result .title-line span { font-weight: 700; color: var(--clay); flex-shrink: 0; }
+
+/* 模型配置栏 */
+.model-config-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #f0f4f8;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.mc-item { display: flex; gap: 6px; align-items: center; }
+.mc-label { color: #888; font-weight: 500; }
+.mc-divider { color: #ccc; }

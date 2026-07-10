@@ -141,6 +141,12 @@ def register(payload: RegisterPayload, response: Response) -> dict[str, Any]:
     full.update({k: v for k, v in user.items() if k not in full})
     from core.base import log
     log(f"注册成功: account={account} uid={full.get('uid', user['id'])}")
+    # 注册成功后自动分配模型 key
+    try:
+        from store.model_assignment import assign_models_to_user
+        assign_models_to_user(int(user["id"]))
+    except Exception as exc:
+        log(f"[WARN] 模型分配失败: {exc}")
     return api_ok(user=public_user(full), enterprise=enterprise)
 
 

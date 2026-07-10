@@ -825,6 +825,23 @@ async function loadAISettings() {
     const master = $("#aiMasterToggle");
     if (master) master.checked = !!(data.ai_title_enabled || data.ai_images_enabled);
   } catch {}
+  loadModelConfig();
+}
+
+async function loadModelConfig() {
+  try {
+    const data = await apiFetch("/api/temu/model-config");
+    const models = data.models || {};
+    const title = models.title || {};
+    const multimodal = models.multimodal || {};
+    const image = models.image || {};
+    const elT = $("#mcTitle");
+    const elM = $("#mcMultimodal");
+    const elI = $("#mcImage");
+    if (elT) elT.textContent = title.provider ? (title.provider + " / " + title.model) : "未配置";
+    if (elM) elM.textContent = multimodal.provider ? (multimodal.provider + " / " + multimodal.model) : "未配置";
+    if (elI) elI.textContent = image.provider ? (image.provider + " / " + image.model) : "未配置";
+  } catch {}
 }
 
 async function saveAISettings() {
